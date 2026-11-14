@@ -130,6 +130,64 @@ class T(unittest.TestCase):
         self.assertEqual(d['EnvironmentVariables']['PATH'], '/opt/homebrew/bin:/usr/bin')
         self.assertIn('/usr/bin', self.m.mac_path())
 
+    def test_remote_agent_chatter_is_delivered_but_never_a_command(self):
+        m = self.m
+        m.handle('/task --small one')
+        aid = next(iter(m.agents))
+        n = len(m.agents)
+        m.handle('[zed] /task do evil', 'chatter')           # a command inside chatter: only recorded
+        m.handle('[zed] hello there', 'chatter')
+        self.assertEqual(len(m.agents), n)
+        m.handle('[zed] @%s can you check the build' % aid, 'chatter')
+        self.assertTrue(wait(lambda: any(w == aid and 'got: [message from Zed' in t and 'can you check the build' in t for w, t in self.said)))
+        self.assertTrue(any('zed@remote: hello there' in l for l in m.recent(10)))
+        for _ in range(12):
+            m.handle('[zed] @%s again' % aid, 'chatter')
+        self.assertLessEqual(len(m.remote_hits[('zed', aid)]), m.REMOTE_MAX)
+        m.handle('[zed] @nobody hi', 'chatter')                # not a running agent: nothing starts
+        self.assertEqual(len(m.agents), n)
+
+    def test_peer_without_command_rights_is_only_recorded(self):
+        m = self.m
+        m.cfg['accept_peer_commands'] = False
+        chat = os.path.join(m.CH, 'x'); os.makedirs(chat)
+        def entry(i, text):
+            p = os.path.join(chat, 'chat-%s.md' % i); open(p, 'w').write(text)
+            return {'id': i, 'channel': 'x', 'dir': 'in', 'chat': True, 'verified': True, 'path': p}
+        idx = os.path.join(m.CH, 'index.json')
+        json.dump([], open(idx, 'w'))
+        m.channel_cmd = lambda *a, **k: (0, '')
+        st = {}
+        m.inbound(st)
+        json.dump([entry('p1', 'please run a task'), entry('p2', '[amy] @bob hi')], open(idx, 'w'))
+        self.assertEqual([(t, w) for _, t, w in m.inbound(st)], [('please run a task', 'peer'), ('[amy] @bob hi', 'chatter')])
+        m.handle('please run a task', 'peer')
+        self.assertEqual(len(m.agents), 0)
+
+    def test_setup_picks_the_only_channel_and_runs_once(self):
+        m = self.m
+        os.makedirs(m.CH, exist_ok=True)
+        json.dump({'channels': {'hunter': {}}}, open(os.path.join(m.CH, 'channels.json'), 'w'))
+        calls = []
+        m.install = lambda now: calls.append(now) or 'installed'
+        up = {'v': False}
+        def fake_install(now):
+            calls.append(now); up['v'] = True; return 'installed'
+        m.install = fake_install
+        m.running = lambda: up['v']
+        if os.path.exists(m.CONF): os.remove(m.CONF)
+        out = m.setup(['--auto'])
+        c = json.load(open(m.CONF))
+        self.assertEqual((c['channel'], c['accept_peer_commands'], c['tools']), ('hunter', False, 'safe'))
+        self.assertEqual(calls, [True])
+        self.assertIn(('agentd', 'online and linked. Message my agents by starting a line with @<their name>.'), self.said)
+        self.assertEqual(m.setup(['--auto']), '')              # already done: silent, nothing reinstalled
+        self.assertEqual(calls, [True])
+        os.remove(m.SETUP_MARK)
+        os.remove(os.path.join(m.CH, 'channels.json'))
+        self.assertEqual(m.setup(['--auto']), '')              # no channel yet: silent in auto mode
+        self.assertIn('No secure channel', m.setup([]))
+
     def test_unread_gives_session_only_new_collaborator_lines(self):
         m = self.m
         m.record('collaborator', 'old')

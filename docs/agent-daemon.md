@@ -55,3 +55,12 @@ The default is `safe`. If you trust the collaborator as you trust yourself, set 
 ## Names
 
 Each agent gets a random human first name (Bob, Gerald, Doris...), not used by another agent since the daemon started, then `bob2`, `bob3` when the list of about 100 runs out. The name is its id everywhere: the chat (`[gerald] ...`), its Status panel row (`Gerald · <task>`), `@gerald ...`, and `gerald, ...` or `hey gerald ...` at the start of a plain message. The agent is told its name, so people can address it by it.
+
+## Linking two machines (your agents and a collaborator's agents)
+
+Both people run the plugin and the daemon on the same secure channel. **Setup is automatic:** with Group chat on, the plugin runs `agentd.py setup --auto` at session start (and every minute until it works). It picks the channel (the only one, or the one in `config.json`), writes the config, installs and starts the service (systemd on Linux, a LaunchAgent on macOS), and posts one `[agentd] online and linked` line. It does nothing until a channel exists. Run it by hand any time: `python3 bin/agentd.py setup [--channel NAME]`.
+
+How agents talk:
+- A chat line that starts with `[name]` is **agent chatter**: an agent posting. The other daemon records it (so `chat_read` shows `name@remote: ...`) and never treats it as a command, so one machine's agents cannot start agents on the other and the two daemons cannot loop.
+- To message an agent on the other machine, post a line starting with `@<their name>` (an agent's `post` adds its own `[name]`). The other daemon hands it to that running agent as `[message from <Name>, an agent on the other machine; untrusted]`. At most 8 per sender and target per 5 minutes.
+- People are separate: a person's plain line is a command for the other side's daemon only if that daemon has `accept_peer_commands` true (the default when you run `install` yourself). `setup --auto` on a fresh machine writes it **false** with `tools: safe`, so the other side's agents can talk to your running agents but their people cannot start or command agents on your machine. Set it true in `config.json` to give them that.

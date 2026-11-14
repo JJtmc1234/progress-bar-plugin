@@ -59,3 +59,11 @@ export function withChatSection<S extends Section>(sections: readonly S[], text:
   if (traits.includes('bare')) return rest
   return [...rest, { id: CHAT_SECTION_ID, text, scope: 'session' } as S]
 }
+
+/** Runs `agentd.py setup --auto` in the background: picks the secure channel, writes the daemon's config, installs and
+ *  starts the service, and says hello once, so this machine's agents can talk to the agents on the other side of the
+ *  channel. It does nothing (and prints nothing) until a channel exists, and nothing after it has succeeded once. On a
+ *  new machine it grants the other side no commands: their agents can only message agents already running here. */
+export async function ensureDaemon($: EngineInterface): Promise<void> {
+  try { await $.process.run(['python3', `${$.plugin.root}/bin/agentd.py`, 'setup', '--auto'], { timeoutMs: 120_000 }) } catch { /* next tick */ }
+}

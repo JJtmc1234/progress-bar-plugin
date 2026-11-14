@@ -2,6 +2,10 @@
 
 Versions of the progress-bar plugin, newest first. Each line is the release commit. Full detail is in the git history.
 
+## Unreleased
+
+- **Agent daemon:** `bin/agentd.py` is a background service that takes tasks from a secure-channel collaborator. `/task` starts one agent, or a coordinator with workers for a big task. `@<id>` pivots a running agent, and every agent can post to the chat. Runs as a systemd user service (`agentd.py install`). See `docs/agent-daemon.md`.
+
 ## 0.34.0
 
 - **Works out of the box:** a new user sees rows for their work with no setup and without asking Claude to show anything.

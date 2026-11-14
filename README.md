@@ -48,6 +48,7 @@ Each one stays out of the way until you set it up.
 | **Overnight recap** | Shows what happened while you were away, from a checkpoint you save | [docs/overnight-recap.md](docs/overnight-recap.md) |
 | **Secure channel** | Sends files to a collaborator's Claude Code session, end-to-end encrypted, over a private GitHub repo | [docs/secure-channel.md](docs/secure-channel.md) |
 | **Chat** | Chat lines over a secure channel, in the panel's Chat tab | [docs/secure-channel.md](docs/secure-channel.md) |
+| **Agent daemon** | A background service that turns chat lines from a collaborator into Claude agents: tasks, pivots, coordinator and workers | [docs/agent-daemon.md](docs/agent-daemon.md) |
 | **herdr** | A connectors side pane for the herdr terminal workspace | [herdr/README.md](herdr/README.md) |
 | **/attach** | macOS file picker that adds files to your prompt as `@` mentions | [docs/attach.md](docs/attach.md) |
 | **Usage meter** | Your plan's 7-day usage in the panel. Off by default, see Configuration | [docs/status-panel.md](docs/status-panel.md) |

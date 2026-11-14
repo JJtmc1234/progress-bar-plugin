@@ -9,6 +9,7 @@ import { withStatusLine } from '../hooks/register'
 import { prevOf, statusScript } from '../hooks/render'
 import { PROGRESS_TOOL, isNewTask, reportBody, shellSlug, taskProgress, taskSlug } from '../hooks/report'
 import { pickOwner, routeOf, sessionKeyOf } from '../hooks/route'
+import { REPORT_SECTION, REPORT_SECTION_ID, TURN_MIN_MS, turnSlug, turnTitle, withReportSection } from '../hooks/auto'
 import { aliveRel, heartbeatOf, mergeLife, pickTxBase, quietUntilOf, toMs } from '../hooks/alive'
 
 // Progress files carry their owner (session id, folder), the plugin sets itself up on first run, and the main
@@ -25,7 +26,7 @@ const CWD = '/home/u/code/shop'
 const SCRIPT = `${HOME}/.claude/progress-bar/statusline.sh`
 
 /** A world with files in memory, a fixed session id and folder, and timers that never fire. */
-function world(on: On, files: Record<string, string>, opts: { agents?: unknown[]; onRun?: (argv: readonly string[]) => { exitCode: number; stdout: string } | undefined; userStatusLine?: string; projectStatusLine?: string; isPlaced?: boolean; script?: { exitCode: number; stdout: string; stderr: string }; now?: number; mtimes?: Record<string, number> } = {}) {
+function world(on: On, files: Record<string, string>, opts: { clock?: () => number; agents?: unknown[]; onRun?: (argv: readonly string[]) => { exitCode: number; stdout: string } | undefined; userStatusLine?: string; projectStatusLine?: string; isPlaced?: boolean; script?: { exitCode: number; stdout: string; stderr: string }; now?: number; mtimes?: Record<string, number> } = {}) {
   const opened: string[] = []
   const runs: string[][] = []
   const toasts: string[] = []
@@ -34,7 +35,7 @@ function world(on: On, files: Record<string, string>, opts: { agents?: unknown[]
   mock.env(on, { HOME })
   const now = opts.now ?? NOW
   const mtime = (p: string) => opts.mtimes?.[p] ?? now
-  on('clock.now', () => ({ value: now }))
+  on('clock.now', () => ({ value: opts.clock ? opts.clock() : now }))
   on('clock.every', async () => { await new Promise<void>(() => {}); return { value: undefined } })
   on('clock.sleep', async () => { await new Promise<void>(() => {}); return { value: undefined } })
   on('session.id', () => ({ value: SID }))
@@ -658,4 +659,115 @@ test('progress_report steps: a non-list is ignored with a note and keeps the sto
   expect((b.steps as unknown[]).length).toBe(2)
   expect((b.steps as unknown[])[0]).toEqual({ name: 'x', state: 'failed' })
   expect(((b.steps as unknown[])[1] as string).length).toBe(200)
+})
+
+// Works with no setup: a new user's first session, with no word about the progress bar.
+
+/** Core's answers for the turn and system prompt hooks. */
+function turns(on: On) {
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+  on('prompt.compose', () => ({ sections: [{ id: 'intro', text: 'You are Claude Code.', scope: 'shared' as const }] }))
+}
+const start = (text: string, agentId?: string) => ({ text, turnId: 't1', ...(agentId ? { agentId } : {}) }) as never
+const end = (agentId?: string) => ({ answer: 'ok', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer', ...(agentId ? { agentId } : {}) }) as never
+
+test('autoReport: one short standing instruction at the end of the system prompt, none for --bare', () => {
+  const base = [{ id: 'intro', text: 'x', scope: 'shared' as const }]
+  const out = withReportSection(base)
+  expect(out.map(s => s.id)).toEqual(['intro', REPORT_SECTION_ID])
+  expect(out[1]!.scope).toBe('session')
+  expect(withReportSection(out)).toHaveLength(2)
+  expect(withReportSection(base, ['bare'])).toHaveLength(1)
+  // Short, so it costs little context: under 120 words, and it names the tool, steps, slug and impact.
+  expect(REPORT_SECTION.split(/\s+/).length).toBeLessThan(120)
+  for (const w of ['progress_report', 'steps', 'slug', 'impact', 'finished']) expect(REPORT_SECTION).toContain(w)
+  expect(turnTitle('\n  Fix the   checkout total\nmore text')).toBe('Fix the checkout total')
+})
+
+test('new user, defaults: the prompt carries the instruction, a subagent and a long multi-step turn get rows', async ($, on) => {
+  let now = NOW
+  const files: Record<string, string> = {}
+  const agents = [{ id: 'ag1', description: 'Audit the checkout tests', status: 'running' }]
+  const { opened } = world(on, files, { agents, clock: () => now })
+  turns(on)
+  on('tool.call', () => ({ result: { ok: true } as never }))
+  await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+  // First run: status line script, panel open, and the standing instruction in the system prompt.
+  expect(files[SCRIPT]).toBe(statusScript())
+  expect(opened).toEqual([PANE])
+  const { sections } = await $.prompt.compose({ model: 'm', promptModel: 'm', surfaces: [], tools: [], outputStyle: null, traits: [] } as never)
+  expect(sections.map(s => s.id)).toEqual(['intro', REPORT_SECTION_ID])
+  // A turn that never mentions the progress bar and never calls progress_report.
+  await $.turn.start(start('Fix the checkout total rounding and add a test\nDetails below'))
+  const row = `${P}/${turnSlug(CWD, SID)}.json`
+  await $.tool.call({ tool: 'Read', file_path: '/home/u/code/shop/cart.ts' } as never)
+  await $.tool.call({ tool: 'Edit', file_path: '/home/u/code/shop/cart.ts' } as never)
+  await $.tool.call({ tool: 'Agent', description: 'Audit the checkout tests', prompt: 'p' } as never)
+  // Three calls in 10 s: too soon for a row.
+  now += 10_000
+  await settle($ as never)
+  expect(files[row]).toBe(undefined)
+  now = NOW + TURN_MIN_MS
+  await $.tool.call({ tool: 'Bash', command: 'npm test', description: 'Run the cart tests' } as never)
+  await settle($ as never)
+  expect(JSON.parse(files[row]!)).toMatchObject({ title: 'Fix the checkout total rounding and add a test', step: 'Bash Run the cart tests, 4 tool calls', startedAt: NOW, session: SID, cwd: CWD })
+  // Both show in this session: the subagent on its line, the turn as a working row.
+  expect(files[`${L}/agents-${KEY}.txt`]).toContain('Audit the checkout tests')
+  // The status line and panel name the row by its file's title (group.py), the line by its file name.
+  expect(files[`${L}/jobs-${KEY}.txt`]).toContain(`${turnSlug(CWD, SID)} working · Bash Run the cart tests, 4 tool calls`)
+  // A subagent's own turn ending leaves the row, the main turn ending removes it.
+  await $.turn.complete(end('ag1'))
+  expect(files[row]).toBeDefined()
+  await $.turn.complete(end())
+  expect(files[row]).toBe(undefined)
+})
+
+test('no noisy rows: a quick edit, a turn that reports itself and a turn with a task list show no fallback row', { options: { openPanel: false } }, async ($, on) => {
+  let now = NOW
+  const files: Record<string, string> = {}
+  world(on, files, { clock: () => now })
+  turns(on)
+  on('tool.call', () => ({ result: { oldTodos: [], newTodos: [] } as never }))
+  await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+  const row = `${P}/${turnSlug(CWD, SID)}.json`
+  // One edit that takes a minute: one tool call, no row.
+  await $.turn.start(start('Rename the cart button'))
+  now += 60_000
+  await $.tool.call({ tool: 'Edit', file_path: '/x' } as never)
+  await settle($ as never)
+  expect(files[row]).toBe(undefined)
+  await $.turn.complete(end())
+  // Many calls in a long turn, but the model reports: its own bar, no fallback row.
+  await $.turn.start(start('Migrate the orders table'))
+  for (let i = 0; i < 5; i++) await $.tool.call({ tool: 'Read', file_path: `/f${i}` } as never)
+  now += TURN_MIN_MS
+  await $.tool.call(report({ title: 'Orders table migrated', done: 0, total: 3 }))
+  expect(files[row]).toBe(undefined)
+  expect(files[`${P}/orders-table-migrated.json`]).toBeDefined()
+  await $.turn.complete(end())
+  // A task list already shows as its bar.
+  await $.turn.start(start('Ship the release'))
+  await $.tool.call({ tool: 'TodoWrite', todos: [{ content: 'Build', status: 'in_progress', activeForm: 'Building' }, { content: 'Tag', status: 'pending', activeForm: 'Tagging' }] } as never)
+  for (let i = 0; i < 4; i++) await $.tool.call({ tool: 'Read', file_path: `/g${i}` } as never)
+  now += TURN_MIN_MS
+  await settle($ as never)
+  expect(files[row]).toBe(undefined)
+  expect(files[`${P}/${taskSlug(CWD, SID)}.json`]).toBeDefined()
+})
+
+test('autoReport off in /config: no instruction and no fallback row', { options: { openPanel: false, autoReport: false } }, async ($, on) => {
+  let now = NOW
+  const files: Record<string, string> = {}
+  world(on, files, { clock: () => now })
+  turns(on)
+  on('tool.call', () => ({ result: { ok: true } as never }))
+  await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+  const { sections } = await $.prompt.compose({ model: 'm', promptModel: 'm', surfaces: [], tools: [], outputStyle: null, traits: [] } as never)
+  expect(sections.map(s => s.id)).toEqual(['intro'])
+  await $.turn.start(start('Refactor the cart'))
+  for (let i = 0; i < 5; i++) await $.tool.call({ tool: 'Read', file_path: `/f${i}` } as never)
+  now += 2 * TURN_MIN_MS
+  await settle($ as never)
+  expect(files[`${P}/${turnSlug(CWD, SID)}.json`]).toBe(undefined)
 })

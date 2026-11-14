@@ -14,18 +14,28 @@ Live progress bars, a to-do list and a docked Status panel for Claude Code. One 
 
 ## What it does
 
+### Works out of the box
+
+Install it and keep working. You never have to ask Claude to show a task in the progress bar.
+
+- **Claude reports on its own:** a short standing note in the system prompt has Claude call `progress_report` for any task with 3 or more steps, with a plain title, steps and what changed at the end. It costs about 150 tokens once per conversation.
+- **Rows with no reporting at all:** every subagent, every task list, every long or background command, and any turn that runs 30 seconds or more with 3 or more tool calls gets a row, even if Claude never calls `progress_report`.
+- **No noise:** a quick answer or a one-step edit adds no row. A turn's row goes away when the turn ends, or as soon as Claude reports the work itself.
+- **Turn it off:** set **Report work automatically** (`autoReport`) off in `/config`.
+
 ### Core
 
 - **Subagents:** every running subagent gets a line with its age, tool calls and last tool.
 - **Your task list:** when Claude keeps a task list (TodoWrite, TaskCreate, TaskUpdate), it shows as one bar.
 - **Long commands:** a Bash command that runs over a minute, or in the background, shows as a row until it ends.
+- **Long turns:** a turn that runs 30 seconds or more with 3 or more tool calls shows as a working row named after your prompt, until it ends.
 - **Real bars:** a job that writes `~/.claude-progress/<slug>.json` gets a bar with percent, count, step and time left. See [docs/progress-files.md](docs/progress-files.md).
 - **Bars from logs:** a job that only writes a log gets a bar from a watch file, with `■ stopped` or `✖ error` when it dies.
 - **Groups:** lines sort into TO-DO, PROBLEMS, RUNNING, WAITING and DONE. A row that has not moved for 10 minutes, with no other sign of life, shows `⚠ stuck`. A long quiet step can say how long it takes (`expect_minutes`) or name a log that keeps changing (`heartbeat`). See [docs/progress-files.md](docs/progress-files.md#stuck-and-signs-of-life).
 - **To-dos:** each project has its own list, with priorities, blockers and auto-next. See [docs/todos.md](docs/todos.md).
 - **Status panel:** a docked pane beside the chat with List, Connectors, GitHub, Log, Chat and Topology tabs. See [docs/status-panel.md](docs/status-panel.md).
 - **Action needed:** a step only you can run holds your next prompt until it is done or skipped. See [docs/action-needed.md](docs/action-needed.md).
-- **Skills:** `progress-reporting` has Claude report multi-step work, `action-needed` has it hand you steps it cannot run.
+- **Skills:** `progress-reporting` has the details for reporting (watch files, areas, gains), `action-needed` has Claude hand you steps it cannot run.
 
 ### Optional extras
 
@@ -57,7 +67,7 @@ Or add the marketplace first, then install:
 /plugin install progress-bar@progress-bar
 ```
 
-Restart Claude Code. From the next session on, the status line shows the bars and the Status panel opens beside the chat. No setup command and no settings to edit.
+Restart Claude Code. From the next session on, the status line shows the bars and the Status panel opens beside the chat, and your work shows up there as you go. No setup command, no settings to edit and nothing to ask Claude.
 
 The first session writes `~/.claude/progress-bar/statusline.sh` with its Python helpers, and points the status line at it through the plugin. Your settings files are not edited. A status line you already had still prints below the bars. `/progress-bar setup` prints the settings line for a status line you manage yourself.
 
@@ -112,6 +122,7 @@ Set these in `/config`, under progress-bar.
 | --- | --- | --- |
 | **Progress status line** (`statusLine`) | on | Shows the bars in the status line. Off leaves your status line alone |
 | **Open the Status panel** (`openPanel`) | on | Opens the panel at session start. Off keeps it closed until `/progress-bar` |
+| **Report work automatically** (`autoReport`) | on | Tells Claude once per conversation to report multi-step work, and shows a long busy turn as a row. Off, rows come only from task lists, long commands, subagents and `progress_report` calls |
 | **Usage meter** (`usageMeter`) | off | Shows your plan's 7-day usage in the panel. On, one session per machine runs a tiny `claude -p` Haiku call every 30 minutes on your login to read it |
 | **Hide account emails** (`hideEmails`) | off | Masks account emails in the panel and the Chrome part, such as `j•••@example.com`, for screen sharing |
 | **Inline step checklist** (`inlineSteps`) | on | Shows a running job's `steps` under its row (up to 5 items, on up to 3 rows). Off shows them only in the opened card |

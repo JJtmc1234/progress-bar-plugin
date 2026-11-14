@@ -9,7 +9,7 @@ description: Report progress of multi-step work to the progress-bar status line.
 
 The progress-bar plugin draws a bar for every progress file in `~/.claude-progress/`. Write one so the person can see how far a job is.
 
-**Already automatic:** your own task list (TodoWrite, TaskCreate, TaskUpdate) shows as one bar, a Bash command over a minute or in the background shows as a working row, and every subagent gets a line. Report on top of that for named jobs with steps.
+**Already automatic:** your own task list (TodoWrite, TaskCreate, TaskUpdate) shows as one bar, a Bash command over a minute or in the background shows as a working row, every subagent gets a line, and a turn that runs 30 s or more with 3 or more tool calls shows as a working row named after the prompt until you report it yourself. Report on top of that for named jobs with steps.
 
 ## Always say which part of the goal gets better, and how
 

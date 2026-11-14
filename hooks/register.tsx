@@ -2,6 +2,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import { ACTION_TOOL, CHECK_EVERY, actionCommand, addFromClaude, gatePrompt, isGated, tickActions } from './actions'
 import { ATTACH_COMMAND, ATTACH_DESCRIPTION, attachFiles } from './attach'
+import { countTool, endTurn, sessionRow, setAutoReport, startTurn, tickTurn, turn, withReportSection } from './auto'
 import { autonextCommand, ownJobs, tickAutonext } from './autonext'
 import { backfillChat, sayCommand } from './chat'
 import { CHANNEL_EVERY, SEND_TOOL, channelCommand, pollChannel, sendCommand, sendFile } from './channel'
@@ -316,7 +317,7 @@ async function collect($: EngineInterface): Promise<{ rows: Row[]; now: number; 
     const before = known.get(a.id)?.file
     const name = before && !claimed.has(before) && (await onDisk(before)) ? before
       : (await onDisk(own)) ? own
-      : closestFile(a.description, loose.filter(n => !exact.has(n) && !claimed.has(n)))
+      : closestFile(a.description, loose.filter(n => !exact.has(n) && !claimed.has(n) && !sessionRow(n)))
     if (name) { fileOf.set(a.id, name); claimed.add(name) }
     // Paired by pairFile before a reload: it may not pair again, as the start it compares with can be later now.
     if (name && name === before && name !== own) pairs[own] = name
@@ -326,7 +327,7 @@ async function collect($: EngineInterface): Promise<{ rows: Row[]; now: number; 
     try { sid = await $.session.id() } catch { sid = '' }
     const cands: PairCandidate[] = []
     for (const n of loose) {
-      if (exact.has(n) || claimed.has(n) || n.startsWith('shell-')) continue
+      if (exact.has(n) || claimed.has(n) || sessionRow(n)) continue
       try {
         const raw = JSON.parse(String(await $.fs.read(`${dir}/${n}.json`))) as Record<string, unknown>
         const born = typeof raw.startedAt === 'number' ? raw.startedAt : await bornOf($, `${dir}/${n}.json`)
@@ -706,6 +707,7 @@ async function poll($: EngineInterface) {
   if (!(await ownsSession($))) return
   await endFinishedShells($).catch(() => undefined)
   await touchShells($)
+  await tickTurn($, await resolveHome($)).catch(() => undefined)
   const { rows, now, shared } = await collect($)
   const home = await resolveHome($)
   if (!home) return
@@ -947,6 +949,26 @@ export const register: Register = (on, options) => {
   setHideEmails(options?.hideEmails === true)
   // On by default: a running row lists its step checklist under it without opening its card.
   setInlineSteps(options?.inlineSteps !== false)
+  // On by default: Claude is told once to report multi-step work, and a long busy turn shows as a row (auto.ts).
+  const autoReport = options?.autoReport !== false
+  setAutoReport(autoReport)
+  if (autoReport) {
+    on('prompt.compose', async ($, e, next) => {
+      const r = await next(e)
+      return { ...r, sections: withReportSection(r.sections, e.traits) }
+    })
+  }
+
+  // The main session's turns: one that runs long with several tool calls shows as a working row until it ends.
+  on('turn.start', async ($, e, next) => {
+    if (e.agentId === undefined) await startTurn($, await resolveHome($), e.text).catch(() => undefined)
+    return next(e)
+  })
+  on('turn.complete', async ($, e, next) => {
+    const r = await next(e)
+    if (e.agentId === undefined) { await endTurn($, await resolveHome($)).catch(() => undefined); void poll($).catch(() => undefined) }
+    return r
+  })
 
   // The status line points at the plugin's script, unless a settings file already does. A status line the person
   // had is chained inside the script (its prev= line), so it still prints below the bars.
@@ -965,6 +987,8 @@ export const register: Register = (on, options) => {
     const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)
     // A list may arrive as JSON text. Anything else passes through, so writeReport can say it was not a list.
     const listArg = (v: unknown) => { if (typeof v !== 'string') return v; try { return JSON.parse(v) as unknown } catch { return v } }
+    // The model reports this turn itself, so the turn's fallback row goes.
+    if (!e.agentId && i.finished !== true) turn.reported = true
     const text = await writeReport($, await resolveHome($), { title: str(i.title) ?? '', label: str(i.label), done: num(i.done), total: num(i.total), step: str(i.step), why: str(i.why), parent: str(i.parent), slug: str(i.slug), reads: str(i.reads), writes: str(i.writes), impact: str(i.impact), area: str(i.area), gains: pickGains(typeof i.gains === 'string' ? (() => { try { return JSON.parse(i.gains as string) } catch { return undefined } })() : i.gains), finished: i.finished === true, expectMinutes: num(i.expect_minutes) ?? (typeof i.expect_minutes === 'string' ? num(Number(i.expect_minutes)) : undefined), heartbeat: str(i.heartbeat), steps: listArg(i.steps), stepStates: listArg(i.step_states) })
     await poll($).catch(() => undefined)
     return { result: text }
@@ -975,7 +999,7 @@ export const register: Register = (on, options) => {
     const r = await next(e)
     if (!e.agentId && !('deny' in r && r.deny)) {
       const todos = (e as unknown as { todos?: Task[] }).todos
-      if (Array.isArray(todos)) { await mirrorTasks($, await resolveHome($), todos).catch(() => undefined); await poll($).catch(() => undefined) }
+      if (Array.isArray(todos)) { turn.taskBar = await mirrorTasks($, await resolveHome($), todos).catch(() => false); await poll($).catch(() => undefined) }
     }
     return r
   })
@@ -983,7 +1007,7 @@ export const register: Register = (on, options) => {
     const r = await next(e)
     if (!e.agentId && !('deny' in r && r.deny) && !r.isError) {
       taskCreated(e as unknown as { subject?: unknown; activeForm?: unknown }, r.result)
-      await mirrorTasks($, await resolveHome($), taskList()).catch(() => undefined)
+      turn.taskBar = await mirrorTasks($, await resolveHome($), taskList()).catch(() => false)
       await poll($).catch(() => undefined)
     }
     return r
@@ -992,7 +1016,7 @@ export const register: Register = (on, options) => {
     const r = await next(e)
     if (!e.agentId && !('deny' in r && r.deny) && !r.isError) {
       taskUpdated(e as unknown as { taskId?: unknown; status?: unknown; subject?: unknown; activeForm?: unknown })
-      await mirrorTasks($, await resolveHome($), taskList()).catch(() => undefined)
+      turn.taskBar = await mirrorTasks($, await resolveHome($), taskList()).catch(() => false)
       await poll($).catch(() => undefined)
     }
     return r
@@ -1055,8 +1079,11 @@ export const register: Register = (on, options) => {
       const input = e as unknown as Record<string, unknown>
       const stopped = e.tool === 'TaskStop' ? String(input.task_id ?? input.shell_id ?? '') : ''
       if (!e.agentId) {
+        countTool(String(e.tool), toolWhat(input))
         const r = await next(e)
         if (stopped && !('deny' in r && r.deny)) dropTask(stopped)
+        // The turn's row shows (or updates) as soon as it is due, not only at the next poll.
+        await tickTurn($, await resolveHome($)).catch(() => undefined)
         return r
       }
       const s = seen.get(e.agentId) ?? { startedAt: await $.clock.now(), tools: 0, lastTool: '' }
@@ -1132,6 +1159,7 @@ export const register: Register = (on, options) => {
   // The session ends: this copy's timers stop. (A /clear goes on in the same process, so its timers keep running.)
   on('session.end', async ($, e, next) => {
     if (e.reason !== 'clear') stop(owner)
+    await endTurn($, await resolveHome($)).catch(() => undefined)
     return next(e)
   })
 

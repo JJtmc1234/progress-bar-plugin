@@ -2,6 +2,14 @@
 
 Versions of the progress-bar plugin, newest first. Each line is the release commit. Full detail is in the git history.
 
+## 0.34.0
+
+- **Works out of the box:** a new user sees rows for their work with no setup and without asking Claude to show anything.
+- **Standing note:** a short section at the end of the system prompt (about 150 tokens, sent once per conversation, after the cache boundary) has Claude call `progress_report` for any task with 3 or more steps or over a minute: a plain title, steps, done after each step, and `finished` with impact. It also has Claude give each subagent a slug to report under. Before, Claude reported only when the `progress-reporting` skill happened to load or the person asked.
+- **Long turns as rows:** a main-session turn that runs 30 s or more with 3 or more tool calls shows as a working row named after the prompt, with its last tool call and count as the step. It goes when the turn ends, when Claude calls `progress_report`, or while the task list already shows as a bar. A quick answer or a one-step edit shows nothing.
+- **No mix-ups:** the turn row and shell rows never pair with a subagent whose description shares their words.
+- **Option:** **Report work automatically** (`autoReport`) in `/config`, on by default. Off removes both the note and the turn rows.
+
 ## 0.33.2
 
 - **Label saved:** `progress_report` saves `label` as the row's `title`. Before, a call with `label` and no `title` stored an empty title, so a reused agent's row kept its first Agent description. `title` wins when both are given, and the tool's schema now lists `label`.

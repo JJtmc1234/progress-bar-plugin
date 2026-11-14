@@ -1,6 +1,6 @@
 {
   "name": "progress-bar",
-  "version": "0.33.2",
+  "version": "0.34.0",
   "description": "Live progress bars in the status line and a docked Status panel for subagents and long jobs that write ~/.claude-progress/<slug>.json",
   "license": "MIT",
   "author": {
@@ -30,6 +30,12 @@
       "type": "boolean",
       "title": "Open the Status panel",
       "description": "Open the Status panel beside the chat at session start, until /progress-bar panel off.",
+      "default": true
+    },
+    "autoReport": {
+      "type": "boolean",
+      "title": "Report work automatically",
+      "description": "Claude shows multi-step work as progress bars without being asked, and a long busy turn shows as a working row until it ends. Off, rows come only from task lists, long commands, subagents and progress_report calls.",
       "default": true
     },
     "usageMeter": {

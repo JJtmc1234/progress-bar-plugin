@@ -199,17 +199,18 @@ export function taskSlug(cwd: string, session: string): string {
 // TaskCreate / TaskUpdate keep a task list by id; TodoWrite sends the whole list each time.
 const tasks = new Map<string, Task>()
 
-/** Writes the session's task bar, or removes it when the list is empty or all done. */
-export async function mirrorTasks($: EngineInterface, h: string, list: readonly Task[]) {
-  if (!h) return
+/** Writes the session's task bar, or removes it when the list is empty or all done. True while the bar shows. */
+export async function mirrorTasks($: EngineInterface, h: string, list: readonly Task[]): Promise<boolean> {
+  if (!h) return false
   const owner = await ownerOf($)
   const name = taskSlug(owner.cwd, owner.session)
   const p = taskProgress(list)
   if (!p) {
     await $.process.run(['rm', '-f', `${h}/${DIR_REL}/${name}.json`]).catch(() => undefined)
-    return
+    return false
   }
   await writeReport($, h, { ...p, slug: name }, owner)
+  return true
 }
 
 /** TaskCreate's result names the new task's id. */

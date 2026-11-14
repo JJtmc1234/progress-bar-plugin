@@ -52,17 +52,28 @@ class T(unittest.TestCase):
         self.assertTrue(wait(lambda: (aid, 'got: now make it longer') in self.said))
 
     def test_unknown_agent_and_help(self):
-        self.m.handle('@a0000 hi')
+        self.m.handle('@nobody hi')
         self.m.handle('/help')
         self.assertIn('no running agent', self.said[0][1])
         self.assertIn('/task', self.said[1][1])
+
+    def test_agents_get_human_names_and_answer_to_them(self):
+        m = self.m
+        m.handle('/task --small one'); m.handle('/task --small two')
+        ids = list(m.agents)
+        self.assertTrue(all(i in m.NAMES for i in ids) and len(set(ids)) == 2)
+        m.handle('hey %s, change course' % ids[0].capitalize())
+        self.assertTrue(wait(lambda: (ids[0], 'got: change course') in self.said))
+        m.handle('@%s: and again' % ids[1].upper())
+        self.assertTrue(wait(lambda: (ids[1], 'got: and again') in self.said))
+        self.assertTrue(any(ids[0].capitalize() + ' is on it' in t for _, t in self.said))
 
     def test_plain_text_with_nothing_running_is_a_task(self):
         m = self.m
         m.handle('please write a haiku', 'owner')
         aid = next(iter(m.agents))
         self.assertTrue(wait(lambda: (aid, 'got: please write a haiku') in self.said))
-        self.assertTrue(any('started' in t for who, t in self.said if who == 'agentd'))
+        self.assertTrue(any('is on it' in t for who, t in self.said if who == 'agentd'))
         m.handle('NEWTHING something unrelated')      # agents running, the router says new
         self.assertEqual(len(m.agents), 2)
         m.handle('make it rhyme')                      # the router says agents

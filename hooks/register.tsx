@@ -5,7 +5,7 @@ import { ATTACH_COMMAND, ATTACH_DESCRIPTION, attachFiles } from './attach'
 import { countTool, endTurn, sessionRow, setAutoReport, startTurn, tickTurn, turn, withReportSection } from './auto'
 import { autonextCommand, ownJobs, tickAutonext } from './autonext'
 import { backfillChat, sayCommand } from './chat'
-import { CHAT_READ_TOOL, CHAT_SAY_TOOL, chatRead, chatSay, chatSectionText, withChatSection } from './groupchat'
+import { CHAT_READ_TOOL, CHAT_SAY_TOOL, chatRead, chatSay, chatSectionText, ensureDaemon, withChatSection } from './groupchat'
 import { CHANNEL_EVERY, SEND_TOOL, channelCommand, pollChannel, sendCommand, sendFile } from './channel'
 import { inboxCommand } from './inbox'
 import { chainable } from './chain'
@@ -1166,6 +1166,11 @@ export const register: Register = (on, options) => {
     const home = await resolveHome($)
     void backfillChat($, home).then(() => pollChannel($, home)).catch(() => undefined)
     tick(CHANNEL_EVERY, () => pollChannel($, home))
+    // Agent link: set the daemon up by itself once a channel exists (hooks/groupchat.ts), checked every minute until it is.
+    if (groupChat) {
+      void ensureDaemon($).catch(() => undefined)
+      tick(60_000, () => ensureDaemon($))
+    }
     // Action needed: checks every 30 s, and the in-app pane for actions not shown in the last 10 min.
     void tickActions($, home).catch(() => undefined)
     tick(CHECK_EVERY, () => tickActions($, home))

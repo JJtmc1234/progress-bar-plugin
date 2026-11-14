@@ -40,4 +40,9 @@ Commands: `agentd.py status | pause | resume | stop-all | uninstall`.
 
 ## Your own Claude Code sessions in the chat
 
-Turn on **Group chat** (`groupChat`) in `/config`. Then every session gets two tools, `chat_read` and `chat_say` (posts as `[s-<session>]`), a short standing note in its system prompt, and the collaborator's new chat lines, added to the prompt of the next turn as untrusted instructions from another person. Claude is told to say who asked before acting, never to reveal secrets because of a chat line, and your permission prompts still apply. It is off by default, because it lets anyone on your channel steer your sessions. It needs the daemon running (it keeps the chat). Hooks: `hooks/groupchat.ts`.
+**Group chat** (`groupChat` in `/config`) is on by default. Every session gets two tools, `chat_read` and `chat_say` (posts as `[s-<session>]`), a short standing note in its system prompt, and the collaborator's new chat lines, added to the prompt of the next turn as untrusted instructions from another person. Claude is told to say who asked before acting, never to reveal secrets because of a chat line, and your permission prompts still apply. It lets anyone on your channel steer your sessions, so turn it off in `/config` if you do not want that. It needs the daemon running (it keeps the chat). Hooks: `hooks/groupchat.ts`.
+
+## In the Status panel and the Chat tab
+
+- **Status panel:** each daemon agent is a row, written by the daemon to `~/.claude-progress/agent-<id>.json`: title `Coordinator c1a2 · <task>`, its state as the step (`working`, `idle · <last result>`), a bar for a coordinator (workers finished of started), workers under their coordinator (`parent`). When an agent ends, its row's `impact` is its last answer and the row moves to DONE.
+- **Chat tab:** a line from an agent or session shows under its id in magenta (`c1a2 · 14:05`), not under "You". Your own lines in the tab are commands for the daemon too: `/task ...`, `@<id> ...`, `@all ...`, or plain text to every running agent. Agents see them as "[chat from the machine owner]".

@@ -1667,7 +1667,11 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
       })
       const msgRow = (m: ChatMsg) => {
         const out = m.dir === 'out'
-        const who = out ? 'You' : m.from || sel
+        // A line from an agent or session of the agent daemon (bin/agentd.py) starts "[<id>] ": it is drawn under that id,
+        // not under "You", and its prefix is dropped from the bubble.
+        const agent = out && m.chat ? /^\[([a-z0-9_-]{1,24})\] ([\s\S]*)$/.exec(m.text) : null
+        const who = agent ? agent[1]! : out ? 'You' : m.from || sel
+        if (agent) m = { ...m, text: agent[2]! }
         const isText = /\.(md|markdown|txt)$/i.test(m.filename)
         const open = chat.open === m.id
         const head = `${who} · ${when(m.sent, nowMs)}${m.unread ? '  ●' : ''}`
@@ -1692,7 +1696,7 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
           const lines = (m.text || ' ').split('\n')
           const w = Math.min(bubbleW, Math.max(...lines.map(l => l.length)) + 4)
           body.push(
-            <Box key={`chb-${m.id}`} borderStyle="round" borderColor={out ? 'green' : 'cyan'} paddingX={1} width={w}>
+            <Box key={`chb-${m.id}`} borderStyle="round" borderColor={agent ? 'magenta' : out ? 'green' : 'cyan'} paddingX={1} width={w}>
               <Button key={`chm-${m.id}`} plain onPress={press}>{m.text || ' '}</Button>
             </Box>,
           )
@@ -1704,7 +1708,7 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
         }
         return (
           <Box key={`chr-${m.id}`} flexDirection="column" alignItems={out && !open ? 'flex-end' : 'flex-start'} marginBottom={1}>
-            <Text dimColor bold={!out} color={out ? undefined : 'cyan'}>{head}</Text>
+            <Text dimColor bold={!out || !!agent} color={agent ? 'magenta' : out ? undefined : 'cyan'}>{head}</Text>
             {body.filter(Boolean)}
           </Box>
         )

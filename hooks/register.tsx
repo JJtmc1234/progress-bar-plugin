@@ -960,9 +960,9 @@ export const register: Register = (on, options) => {
     })
   }
 
-  // Group chat (off unless turned on in /config): this session reads and posts in the machine's group chat, and the
+  // Group chat (on by default, off from /config): this session reads and posts in the machine's group chat, and the
   // collaborator's new lines ride along in the system prompt as untrusted instructions (hooks/groupchat.ts).
-  const groupChat = options?.groupChat === true
+  const groupChat = options?.groupChat !== false
   if (groupChat) {
     on('prompt.compose', async ($, e, next) => {
       const r = await next(e)

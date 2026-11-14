@@ -63,6 +63,7 @@ POST_HELP = ('The group chat is shared by the collaborator and every running age
              'finish). Messages typed in the chat without an @ also reach you directly as a user turn starting "[chat from the '
              'collaborator]".')
 
+PROGRESS = os.environ.get('PROGRESS_DIR') or ROOT
 CHATLOG = os.path.join(HOME, 'chat.jsonl')
 lock = threading.RLock()
 agents = {}       # id -> Agent
@@ -182,7 +183,7 @@ def clean_chat(s):
 
 
 def inbound(state):
-    """New verified chat lines from the peer: [(id, text)]. Reads channel/index.json, which both this daemon and the
+    """New verified chat lines: [(id, text, who)], who is collaborator (the peer) or owner (you, typing in the Chat tab). Reads channel/index.json, which both this daemon and the
     plugin's own polling fill, so whoever polled first does not hide a message from us."""
     channel_cmd('poll', timeout=90)
     idx = read_json(os.path.join(CH, 'index.json'), [])
@@ -190,7 +191,7 @@ def inbound(state):
     first = 'cursor_set' not in state
     out = []
     for e in idx if isinstance(idx, list) else []:
-        if not isinstance(e, dict) or e.get('channel') != cfg['channel'] or e.get('dir') != 'in' or not e.get('chat'):
+        if not isinstance(e, dict) or e.get('channel') != cfg['channel'] or e.get('dir') not in ('in', 'out') or not e.get('chat'):
             continue
         if not e.get('verified') or e['id'] in done:
             continue
@@ -202,7 +203,11 @@ def inbound(state):
             continue
         try:
             with open(path, encoding='utf-8', errors='replace') as f:
-                out.append((e['id'], f.read(MAX_LINE + 1)[:MAX_LINE]))
+                body = f.read(MAX_LINE + 1)[:MAX_LINE]
+            if e['dir'] == 'in':
+                out.append((e['id'], body, 'collaborator'))
+            elif not body.startswith('['):  # the owner typing in the Chat tab; lines the daemon and agents send start with [id]
+                out.append((e['id'], body, 'owner'))
         except OSError:
             continue
     state['handled'] = sorted(done)[-3000:]
@@ -221,6 +226,8 @@ class Agent:
         self.workers = []
         self.proc = None
         self.cwd = os.path.join(WORK, aid)
+        self.result = ''
+        self.retired = False
 
     def public(self):
         return {'id': self.id, 'role': self.role, 'parent': self.parent, 'status': self.status,
@@ -287,7 +294,7 @@ class Agent:
                     continue
                 if ev.get('type') == 'result':
                     text = clean_chat(ev.get('result') or ('(error: ' + clean(ev.get('subtype'), 40) + ')'))
-                    self.status, self.last = 'idle', now()
+                    self.status, self.last, self.result = 'idle', now(), text
                     self.finished(text)
         finally:
             self.status = 'ended'
@@ -307,6 +314,41 @@ class Agent:
             os.killpg(self.proc.pid, 15)
         except (OSError, AttributeError):
             pass
+
+
+def slug(a):
+    return 'agent-' + a.id
+
+
+def publish(a, impact=None):
+    """The agent as a row in the Status panel: ~/.claude-progress/agent-<id>.json (docs/progress-files.md)."""
+    ws = [agents[w] for w in a.workers if w in agents]
+    row = {'title': a.role.capitalize() + ' ' + a.id + ' · ' + clean(a.task, 70), 'step': a.status + (' · ' + clean(a.result, 60) if a.status == 'idle' and a.result else ''),
+           'startedAt': a.started * 1000, 'why': 'a task from the chat', 'agent': True}
+    if a.role == 'worker' and a.parent:
+        row['parent'] = 'agent-' + a.parent
+    if a.role == 'coordinator' and ws:
+        row['total'], row['done'] = len(ws), sum(1 for w in ws if w.status in ('idle', 'ended'))
+    if impact:
+        row['impact'] = impact
+    try:
+        write_json(os.path.join(PROGRESS, slug(a) + '.json'), row)
+    except OSError:
+        pass
+
+
+def retire(a):
+    """Final row with the outcome, then the file goes a few seconds later so the panel records it as done."""
+    a.retired = True
+    publish(a, clean(a.result or 'stopped', 280))
+    def rm():
+        try:
+            os.remove(os.path.join(PROGRESS, slug(a) + '.json'))
+        except OSError:
+            pass
+    t = threading.Timer(6, rm)
+    t.daemon = True
+    t.start()
 
 
 def live():
@@ -362,21 +404,21 @@ def stop_agent(aid):
         return True
 
 
-def say_all(text):
-    sent = [a.id for a in live() if text and a.send('[chat from the collaborator]\n' + text[:MAX_LINE])]
+def say_all(text, who='collaborator'):
+    sent = [a.id for a in live() if text and a.send('[chat from the ' + ('machine owner' if who == 'owner' else 'collaborator') + ']\n' + text[:MAX_LINE])]
     log('broadcast to ' + str(len(sent)))
-    if not sent:
+    if not sent and who != 'owner':
         say('no running agents to tell. ' + HELP)
 
 
-def handle(text):
+def handle(text, who='collaborator'):
     """One command from the peer. Returns nothing, replies go to the chat."""
     text = text.strip()
     m = re.match(r'@([a-z][0-9a-f]{4})\b\s*(.*)', text, re.S)
     try:
-        record('collaborator', text)
+        record(who, text)
         if re.match(r'@all\b', text):
-            say_all(text[4:].strip())
+            say_all(text[4:].strip(), who)
         elif m:
             a = agents.get(m.group(1))
             if not a or a.status == 'ended' or not m.group(2):
@@ -404,7 +446,9 @@ def handle(text):
         elif re.match(r'/stop\b', text):
             say('stopped ' + text[5:].strip() if stop_agent(text[5:].strip()) else 'no agent ' + clean(text[5:], 20))
         elif text and not text.startswith('/') and live():
-            say_all(text)  # plain chat reaches every running agent
+            say_all(text, who)  # plain chat reaches every running agent
+        elif who == 'owner':
+            pass
         else:
             say(HELP)
     except ValueError as e:
@@ -480,9 +524,15 @@ def run():
                     busy = any(w in agents and agents[w].status in ('working', 'starting') for w in a.workers)
                     if a.status == 'idle' and not busy and now() - a.last > cfg['idle_minutes'] * 60:
                         a.stop()
+            with lock:
+                for a in list(agents.values()):
+                    if a.status == 'ended' and not a.retired:
+                        retire(a)
+                    elif a.status != 'ended':
+                        publish(a)
             if cfg['channel']:
-                for _, text in inbound(state):
-                    handle(text)
+                for _, text, who in inbound(state):
+                    handle(text, who)
                 write_json(STATE, {**state, 'agents': [a.public() for a in agents.values()]})
         except Exception as e:  # the daemon must outlive one bad message or one gh hiccup
             log('loop error: ' + type(e).__name__ + ' ' + clean(e, 120))

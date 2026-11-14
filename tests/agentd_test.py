@@ -107,6 +107,27 @@ class T(unittest.TestCase):
         self.assertEqual(m.unread('s-ab12'), [])      # shown once
         self.assertEqual(m.unread('s-zz99'), [])      # another session starts its own cursor
 
+    def test_agent_rows_for_the_status_panel(self):
+        m = self.m
+        m.PROGRESS = os.path.join(self.d, 'progress')
+        m.handle('/task BIGTASK do many things')
+        cid = next(iter(m.agents))
+        w = m.serve({'op': 'spawn', 'id': cid, 'text': 'piece'})['id']
+        self.assertTrue(wait(lambda: m.agents[w].status == 'idle'))
+        for a in list(m.agents.values()):
+            m.publish(a)
+        row = json.load(open(os.path.join(m.PROGRESS, 'agent-' + w + '.json')))
+        self.assertEqual(row['parent'], 'agent-' + cid)
+        crow = json.load(open(os.path.join(m.PROGRESS, 'agent-' + cid + '.json')))
+        self.assertEqual((crow['done'], crow['total']), (1, 1))
+        m.agents[w].stop(); m.agents[w].result = 'all done'
+        m.retire(m.agents[w])
+        self.assertIn('all done', json.load(open(os.path.join(m.PROGRESS, 'agent-' + w + '.json')))['impact'])
+
+    def test_owner_plain_text_is_silent_without_agents(self):
+        self.m.handle('hello', 'owner')
+        self.assertEqual(self.said, [])
+
     def test_inbound_skips_history_then_reads_new_peer_lines(self):
         m = self.m
         chat = os.path.join(m.CH, 'x'); os.makedirs(chat)
@@ -120,7 +141,7 @@ class T(unittest.TestCase):
         st = {}
         self.assertEqual(m.inbound(st), [])
         json.dump([entry('old1'), entry('new1'), entry('mine', 'out'), entry('bad', ok=False)], open(idx, 'w'))
-        self.assertEqual([t for _, t in m.inbound(st)], ['/task hi new1'])
+        self.assertEqual([(t, w) for _, t, w in m.inbound(st)], [('/task hi new1', 'collaborator'), ('/task hi mine', 'owner')])
         self.assertEqual(m.inbound(st), [])
 
 

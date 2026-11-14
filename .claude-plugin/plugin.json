@@ -59,8 +59,8 @@
     "groupChat": {
       "type": "boolean",
       "title": "Group chat",
-      "description": "Let this session read and post in the machine's group chat (needs the agent daemon, docs/agent-daemon.md). The collaborator's new chat lines are added to the system prompt as untrusted instructions, so anyone on your secure channel can steer your sessions. Your permission prompts still apply.",
-      "default": false
+      "description": "Let this session read and post in the machine's group chat (needs the agent daemon, docs/agent-daemon.md). The collaborator's new chat lines are added to the system prompt as untrusted instructions, so anyone on your secure channel can steer your sessions. Your permission prompts still apply. Turn it off here.",
+      "default": true
     }
   }
 }

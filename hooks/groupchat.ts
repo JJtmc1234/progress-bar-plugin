@@ -3,7 +3,7 @@
 //   * two tools, chat_read and chat_say (chat_say posts as "s-<session>"),
 //   * a short standing section in the system prompt, and the collaborator's new chat lines since the last turn.
 // The collaborator's lines are untrusted instructions. The section says so, says the person's own permission
-// prompts still apply, and tells Claude to say who asked before acting. Off unless `groupChat` is true in /config.
+// prompts still apply, and tells Claude to say who asked before acting. On by default, off with `groupChat` false in /config.
 
 import type { EngineInterface } from 'claude-code'
 

@@ -953,22 +953,21 @@ export const register: Register = (on, options) => {
   // On by default: Claude is told once to report multi-step work, and a long busy turn shows as a row (auto.ts).
   const autoReport = options?.autoReport !== false
   setAutoReport(autoReport)
-  if (autoReport) {
-    on('prompt.compose', async ($, e, next) => {
-      const r = await next(e)
-      return { ...r, sections: withReportSection(r.sections, e.traits) }
-    })
-  }
 
   // Group chat (on by default, off from /config): this session reads and posts in the machine's group chat, and the
   // collaborator's new lines ride along in the system prompt as untrusted instructions (hooks/groupchat.ts).
   const groupChat = options?.groupChat !== false
-  if (groupChat) {
+  // One prompt.compose hook (a second without a matcher is refused): the report note, then the group chat section.
+  if (autoReport || groupChat) {
     on('prompt.compose', async ($, e, next) => {
       const r = await next(e)
-      if (e.agentId !== undefined) return r
-      return { ...r, sections: withChatSection(r.sections, await chatSectionText($, await sessionKeyOf($)), e.traits) }
+      let sections = r.sections
+      if (autoReport) sections = withReportSection(sections, e.traits)
+      if (groupChat && e.agentId === undefined) sections = withChatSection(sections, await chatSectionText($, await sessionKeyOf($)), e.traits)
+      return { ...r, sections }
     })
+  }
+  if (groupChat) {
     on('tool.call', { tool: 'mcp__progress-bar__chat_read' }, async ($, e) => {
       return { result: await chatRead($, (e as unknown as { lines?: unknown }).lines) }
     })

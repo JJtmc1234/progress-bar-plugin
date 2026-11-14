@@ -21,7 +21,7 @@ import { REPOS_REL, parseBranches, parseCommits, webUrl } from '../hooks/github'
 import { blocker, clip, doneEvents, isRunningRow, jobMachine, keyWords, moveItem, nextPrompt, nextReady, parseCaps, parseItem, parseMode, rankTodos, ranked, rowName, shortJob, todoRows } from '../hooks/priority'
 import { fileOf, mainOfGitFile, parseProjects, projectSlug, resolveProject, worktreeCwd } from '../hooks/project'
 import { aliveTasks, bgLaunch, jobText, oneLine, scanTranscript, snapOf, toolWhat, waitSegs, watchedJob } from '../hooks/waiting'
-import { CHECKLIST_MAX, INLINE_MAX, INLINE_ROWS, checklistLines, inlineLines, stepItems } from '../hooks/render'
+import { CHECKLIST_MAX, INLINE_MAX, INLINE_ROWS, SPIN, STEP_MARK, activeMark, checklistLines, inlineLines, spinFrame, stepItems } from '../hooks/render'
 import { FEW_STEPS, RATE_MIN_MS, eta, expandHome, line, rateLeft, stepRate, trackJob, lines, parseProgress, parseTitles, pickMeta, parseWatch, prevOf, readLog, slug, statusScript, watchState, todoAdd, todoClear, todoDone, todoItems, todoList } from '../hooks/render'
 
 const NOW = 1_800_000_000_000
@@ -2336,4 +2336,24 @@ test('at most 3 running rows list steps inline, the rest show only their step li
   expect(lines.some(l => l.includes(`${TIE}work ${without} · 3m`))).toBe(true)
   for (const id of ids) expect(lines.some(l => l.includes(`work ${id} · 3m`))).toBe(true)
   await ui.unmount()
+})
+
+test('the active checklist step turns with the row spinner; a stuck, paused or finished row keeps it still', () => {
+  // The same frames and clock as group.py, which draws the row's own spinner.
+  expect(GROUP_PY).toContain(`SPIN = '${SPIN}'`)
+  expect(GROUP_PY).toContain('SPIN[int(now) % len(SPIN)]')
+  expect([0, 1000, 2000, 3000, 4000, 5999].map(spinFrame).join('')).toBe('◐◓◑◒◐◓')
+  // The row's own frame wins, so the step never runs a tick apart from it. Another row mark falls back to the clock.
+  expect(activeMark('◑', 0, false)).toBe('◑')
+  expect(activeMark('•', 3000, false)).toBe('◒')
+  expect(activeMark('◓', 3000, true)).toBe(STEP_MARK.active)
+  const items = stepItems(['plan', 'full run and push', 'tag'], 1, 3)
+  for (const f of SPIN) {
+    const { rows } = inlineRows(items, 'full run and push', '1h35m', 60, activeMark(f, 0, false))
+    expect(rows.find(r => r.state === 'active')!.mark).toBe(f)
+    expect(rows.find(r => r.state === 'done')!.mark).toBe('✓')
+    expect(checkRows(items, 60, f).find(r => r.state === 'active')!.mark).toBe(f)
+  }
+  // Without a frame (a waiting card), the still mark.
+  expect(checkRows(items, 60).find(r => r.state === 'active')!.mark).toBe('◐')
 })

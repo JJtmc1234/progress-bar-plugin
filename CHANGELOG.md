@@ -2,6 +2,10 @@
 
 Versions of the progress-bar plugin, newest first. Each line is the release commit. Full detail is in the git history.
 
+## 0.34.1
+
+- **Turning step:** a running row's current checklist step turns with the row's spinner (`◐◓◑◒`, one frame a second), inline and in the opened card. Before, it stayed a still `◐`, so a long step looked frozen. A stuck, paused or just finished row keeps the still mark. The status line has no checklist and is unchanged.
+
 ## 0.34.0
 
 - **Works out of the box:** a new user sees rows for their work with no setup and without asking Claude to show anything.

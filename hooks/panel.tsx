@@ -28,7 +28,7 @@ import { turnOnStatusLine } from './setup'
 import { parseSaved, sessionLogin, usageFileRel, usageMeterOn } from './usage'
 import { shownEmails } from './privacy'
 import type { UsageReading } from './usage'
-import { FEW_STEPS, FILE_FRESH_MS, INLINE_ROWS, STEP_MARK, checklistLines, inlineLines, inlineStepsOn, todoItems as parseTodo, parseTitles, pickMeta, serverOf, slug } from './render'
+import { FEW_STEPS, FILE_FRESH_MS, INLINE_ROWS, STEP_MARK, activeMark, checklistLines, inlineLines, inlineStepsOn, todoItems as parseTodo, parseTitles, pickMeta, serverOf, slug } from './render'
 import type { StepItem, StepState } from '../types'
 import type { CheckLine } from './render'
 import type { LocalView } from '../types'
@@ -88,15 +88,15 @@ export type CheckRow = { mark: string; name: string; suffix: string; state: Step
  * window), names cut with "…". An item adds " · <note>" dim only from its own `note`. The job's `step` shows once, on
  * the step line above, never after an item.
  */
-export function checkRows(items: readonly StepItem[], room: number): CheckRow[] {
-  return toRows(checklistLines(items), room, () => '')
+export function checkRows(items: readonly StepItem[], room: number, active = STEP_MARK.active): CheckRow[] {
+  return toRows(checklistLines(items), room, () => '', active)
 }
 
 /**
  * Checklist lines as rows `room` cells wide. An item's dim suffix is its own note (" · note"), then `extra(index)`
  * (like the run time the inline list gives one item).
  */
-function toRows(lines: CheckLine[], room: number, extra: (index: number) => string): CheckRow[] {
+function toRows(lines: CheckLine[], room: number, extra: (index: number) => string, active = STEP_MARK.active): CheckRow[] {
   const w = Math.max(4, room - 2)
   return lines.map(l => {
     if (l.kind === 'more') return { mark: '…', name: clip(l.where === 'before' ? `${l.n} earlier` : `${l.n} more`, w), suffix: '', state: 'more' as const }
@@ -104,7 +104,7 @@ function toRows(lines: CheckLine[], room: number, extra: (index: number) => stri
     const said = `${note ? ` · ${note}` : ''}${extra(l.index)}`
     const cut = clip(name, w)
     const left = w - cut.length
-    return { mark: STEP_MARK[state], name: cut, suffix: said && left > 4 ? clip(said, left) : '', state }
+    return { mark: state === 'active' ? active : STEP_MARK[state], name: cut, suffix: said && left > 4 ? clip(said, left) : '', state }
   })
 }
 
@@ -113,13 +113,13 @@ function toRows(lines: CheckLine[], room: number, extra: (index: number) => stri
  * When the row's step is the active item's name, `replaces` is true: the checklist stands in for the step line, and
  * the active item carries the run time (" · 42m") the step line would have shown.
  */
-export function inlineRows(items: readonly StepItem[], step: string, time: string, room: number): { rows: CheckRow[]; replaces: boolean } {
+export function inlineRows(items: readonly StepItem[], step: string, time: string, room: number, active = STEP_MARK.active): { rows: CheckRow[]; replaces: boolean } {
   if (!items.length) return { rows: [], replaces: false }
   // The one active item the step names, if any. Only it carries the run time, not every active item.
   const st = step.trim().toLowerCase()
   const at = st ? items.findIndex(x => x.state === 'active' && x.name.toLowerCase() === st) : -1
   const replaces = at >= 0
-  return { rows: toRows(inlineLines(items), room, i => (i === at && time ? ` · ${time}` : '')), replaces }
+  return { rows: toRows(inlineLines(items), room, i => (i === at && time ? ` · ${time}` : ''), active), replaces }
 }
 
 const foldedAtom = atom({ plugin: 'progress-bar', key: 'folded' } as const, [])
@@ -1382,6 +1382,8 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
       const title = plain(m0.title || prettyName(r.name))
       const label = fitLabel(title, col)
       const finished = r.mark === '✔'
+      // The active checklist item turns with the row's spinner. A stuck, paused or finished row keeps it still.
+      const turning = activeMark(r.mark, nowMs, !!stuck || paused || finished)
       // Room after mark, label, bar and percent (4 + col + 17) and two spaces.
       const room = width - ind.length - col - 23 - (ctlKindOf(r) ? 4 : 0)
       const fit = (x: string) => (x.length > room ? (room > 1 ? `${x.slice(0, room - 1)}…` : '') : x)
@@ -1394,7 +1396,7 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
       // panel stays short). When the step is the current item's name, the checklist replaces the step line.
       const items = metaOf(r.name).steps ?? []
       const inline = !isOpen && items.length > 0 && inlineStepsOn() && inlineUsed < INLINE_ROWS
-        ? inlineRows(items, r.step, nowTime(r), width - pad.length - TIE.length)
+        ? inlineRows(items, r.step, nowTime(r), width - pad.length - TIE.length, turning)
         : null
       if (inline) inlineUsed++
       const step = inline?.replaces ? '' : step0
@@ -1423,7 +1425,7 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
         // why, area and gains, lined up under its text.
         step ? <Box key={`rs${k}`} paddingLeft={ind.length + 4}>{tie(true)}<Text dimColor wrap={isOpen ? 'wrap' : 'truncate-end'}>{isOpen ? step : clip(step, Math.max(4, width - ind.length - 4 - TIE.length))}</Text></Box> : null,
         ...(inline ? tieFirst(inline.rows.map((c, j) => (f: boolean) => checkLine(`il${k}-${j}`, pad, c, f)), !!step) : []),
-        ...(isOpen ? details(r, k, pad, step.includes(waitOn) ? '' : waitOn, tags, machineOf(full, title), ar, why, !!step) : []),
+        ...(isOpen ? details(r, k, pad, step.includes(waitOn) ? '' : waitOn, tags, machineOf(full, title), ar, why, !!step, turning) : []),
       ].filter(Boolean)
     }
     const toggleCard = (key: string) => update($, openAtom, l => (l.includes(key) ? l.filter(x => x !== key) : [...l, key]))
@@ -1460,9 +1462,9 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
         </Box>
       )
     }
-    const details = (r: RunCard, k: string, pad: string, waitOn: string, tags: LensTag[] = [], machine = '', ar?: GoalArea, why = '', above = true) => tieFirst([
+    const details = (r: RunCard, k: string, pad: string, waitOn: string, tags: LensTag[] = [], machine = '', ar?: GoalArea, why = '', above = true, active = STEP_MARK.active) => tieFirst([
       waitOn ? (f: boolean) => hang(`t${k}`, pad, `waiting on: ${waitOn}`, false, f) : null,
-      ...checkRows(metaOf(r.name).steps ?? [], width - pad.length - TIE.length).map((c, j) => (f: boolean) => checkLine(`ck${k}-${j}`, pad, c, f)),
+      ...checkRows(metaOf(r.name).steps ?? [], width - pad.length - TIE.length, active).map((c, j) => (f: boolean) => checkLine(`ck${k}-${j}`, pad, c, f)),
       ar && ar.id !== OTHER.id ? (f: boolean) => second(`ar${k}`, pad.length, ar, why, true, f) : why ? (f: boolean) => hang(`wy${k}`, pad, why, true, f) : null,
       machine ? (f: boolean) => hang(`mc${k}`, pad, `machine: ${machine}`, true, f) : null,
       r.watchedBy ? (f: boolean) => hang(`wb${k}`, pad, `watched by ${r.watchedBy}`, true, f) : null,

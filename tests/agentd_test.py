@@ -55,6 +55,19 @@ class T(unittest.TestCase):
         self.assertIn('no running agent', self.said[0][1])
         self.assertIn('/task', self.said[1][1])
 
+    def test_plain_text_and_all_reach_every_agent_and_agents_can_read_chat(self):
+        m = self.m
+        m.handle('/task --small one'); m.handle('/task --small two')
+        ids = list(m.agents)
+        m.handle('change of plan')
+        for i in ids:
+            self.assertTrue(wait(lambda i=i: (i, 'got: [chat from the collaborator]\nchange of plan') in self.said))
+        m.handle('@all stop now')
+        self.assertTrue(wait(lambda: (ids[0], 'got: [chat from the collaborator]\nstop now') in self.said))
+        lines = m.serve({'op': 'read', 'id': ids[0], 'n': 10})['lines']
+        self.assertTrue(any('collaborator: change of plan' in l for l in lines))
+        self.assertFalse(m.serve({'op': 'read', 'id': 'zzzz'})['ok'])
+
     def test_big_task_spawns_coordinator_with_capped_workers(self):
         m = self.m
         m.handle('/task BIGTASK do many things')

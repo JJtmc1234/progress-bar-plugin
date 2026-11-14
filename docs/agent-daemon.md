@@ -7,11 +7,12 @@ One background daemon (`bin/agentd.py run`) watches the chat on one channel. A l
 | Line | What happens |
 |---|---|
 | `/task <text>` | Starts work. A cheap Claude call picks small (one agent) or big (a coordinator that starts up to 4 workers). `--big` / `--small` force it. |
-| `@<agent-id> <text>` | Talks to, or pivots, a running agent. The text arrives as its next user turn. |
+| `@<agent-id> <text>` | Talks to, or pivots, one running agent. The text arrives as its next user turn. |
+| `@all <text>`, or any plain line | Sent to every running agent as a user turn. |
 | `/agents` | Lists agents. |
 | `/stop <agent-id>` | Stops an agent and its workers. |
 
-Every agent can post to the same chat (`agentd.py post <id> <text>`), tell another agent (`tell`), and a coordinator can `spawn` workers. A worker's final answer goes to its coordinator, and the coordinator's answer goes to the chat. Lines in the chat are prefixed `[<agent-id>]`.
+Every agent can read the group chat (`agentd.py read <id> [N]`: Hunter's lines and every agent's posts), post to it (`post <id> <text>`), tell another agent (`tell`), and a coordinator can `spawn` workers. A worker's final answer goes to its coordinator, and the coordinator's answer goes to the chat. Lines in the chat are prefixed `[<agent-id>]`.
 
 ## Set up
 

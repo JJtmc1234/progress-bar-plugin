@@ -111,6 +111,14 @@ class T(unittest.TestCase):
         m.handle('/task --small b')
         self.assertTrue(any('paused' in t for _, t in self.said))
 
+    def test_macos_launch_agent_plist(self):
+        import plistlib
+        d = plistlib.loads(self.m.build_plist('/usr/bin/python3', '/x/agentd.py', '/opt/homebrew/bin:/usr/bin', '/x/log'))
+        self.assertEqual(d['ProgramArguments'], ['/usr/bin/python3', '/x/agentd.py', 'run'])
+        self.assertTrue(d['RunAtLoad'] and d['KeepAlive'])
+        self.assertEqual(d['EnvironmentVariables']['PATH'], '/opt/homebrew/bin:/usr/bin')
+        self.assertIn('/usr/bin', self.m.mac_path())
+
     def test_unread_gives_session_only_new_collaborator_lines(self):
         m = self.m
         m.record('collaborator', 'old')

@@ -22,7 +22,7 @@ python3 bin/agentd.py install --now     # writes ~/.config/systemd/user/progress
 $EDITOR ~/.claude-progress/agentd/config.json   # set "channel" to a channel name from /progress-bar channel list
 ```
 
-The unit starts at boot. With `loginctl enable-linger $USER` it starts before you log in.
+On Linux the unit starts at boot (with `loginctl enable-linger $USER`, before you log in). On macOS `install` writes a LaunchAgent, `~/Library/LaunchAgents/com.progress-bar.agentd.plist`, which starts when you log in and restarts if it stops (log: `~/.claude-progress/agentd/agents.log`). It stores the full path of `claude` in `config.json`, because a service has a thinner PATH than your shell.
 
 `config.json`: `tools` (`safe`, the default, or `full`), `channel`, `max_agents` (6), `max_workers` (4), `max_budget_usd` per agent (5), `idle_minutes` (30), `model`, `extra_tools`, `add_dirs`.
 

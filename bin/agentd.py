@@ -34,7 +34,7 @@ Files, all under $PB_AGENTD_HOME (default ~/.claude-progress/agentd, folder 700)
 Usage: agentd.py run | install [--now] | uninstall | status | list | pause | resume | stop-all
        | post <id> <text...> | spawn <id> <task...> | tell <id> <to-id> <text...>
 """
-import json, os, re, secrets, shlex, shutil, socket, socketserver, subprocess, sys, threading, time
+import json, os, plistlib, re, secrets, shlex, shutil, socket, socketserver, subprocess, sys, threading, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CHANNEL_PY = os.environ.get('PB_AGENTD_CHANNEL_PY') or os.path.join(HERE, 'channel.py')
@@ -43,6 +43,9 @@ ROOT = os.path.join(os.path.expanduser('~'), '.claude-progress')
 CH = os.environ.get('PB_CHANNEL_HOME') or os.path.join(ROOT, 'channel')
 HOME = os.environ.get('PB_AGENTD_HOME') or os.path.join(ROOT, 'agentd')
 SOCK = os.path.join(HOME, 'agentd.sock')
+if len(SOCK.encode()) > 100:  # a unix socket path is at most 104 bytes on macOS (108 on Linux)
+    import hashlib, tempfile
+    SOCK = os.path.join(tempfile.gettempdir(), 'pb-agentd-' + hashlib.sha256(HOME.encode()).hexdigest()[:10] + '.sock')
 CONF = os.path.join(HOME, 'config.json')
 STATE = os.path.join(HOME, 'state.json')
 PAUSED = os.path.join(HOME, 'PAUSED')
@@ -369,6 +372,8 @@ def retire(a):
 def desktop_env():
     """A boot-time user service has no WAYLAND_DISPLAY or HYPRLAND_INSTANCE_SIGNATURE, so a GUI command from an agent
     would fail. Find the running session's sockets under /run/user/<uid>."""
+    if sys.platform == 'darwin':
+        return {}  # a LaunchAgent runs inside the login session: open, osascript and GUI launches already work
     run = '/run/user/' + str(os.getuid())
     env = {'XDG_RUNTIME_DIR': run}
     try:
@@ -613,15 +618,49 @@ WantedBy=default.target
 """
 
 
+LABEL = 'com.progress-bar.agentd'
+
+
+def build_plist(python, script, path, out):
+    """The macOS LaunchAgent: starts at login, restarts if it dies. `path` is the PATH the daemon runs with, so
+    `claude`, `gh`, `git` and `python3` are found."""
+    return plistlib.dumps({'Label': LABEL, 'ProgramArguments': [python, script, 'run'], 'RunAtLoad': True,
+                           'KeepAlive': True, 'ThrottleInterval': 10, 'ProcessType': 'Background',
+                           'EnvironmentVariables': {'PATH': path}, 'StandardOutPath': out, 'StandardErrorPath': out})
+
+
+def mac_path():
+    """PATH for the LaunchAgent: the installer's PATH plus the usual Homebrew and ~/.local places."""
+    extra = ['/opt/homebrew/bin', '/usr/local/bin', os.path.join(os.path.expanduser('~'), '.local', 'bin')]
+    have = [p for p in os.environ.get('PATH', '').split(':') if p]
+    return ':'.join(have + [p for p in extra + ['/usr/bin', '/bin', '/usr/sbin', '/sbin'] if p not in have])
+
+
 def install(now_flag):
+    os.makedirs(HOME, mode=0o700, exist_ok=True)
+    if not os.path.exists(CONF):
+        c = dict(DEFAULTS)
+        found = shutil.which('claude')
+        if found:
+            c['claude'] = found  # a service has a thinner PATH than a shell, so keep the full path
+        write_json(CONF, c)
+    if sys.platform == 'darwin':
+        d = os.path.join(os.path.expanduser('~'), 'Library', 'LaunchAgents')
+        os.makedirs(d, exist_ok=True)
+        plist = os.path.join(d, LABEL + '.plist')
+        with open(plist, 'wb') as f:
+            f.write(build_plist(sys.executable, SELF, mac_path(), LOG))
+        dom = 'gui/' + str(os.getuid())
+        subprocess.run(['launchctl', 'bootout', dom + '/' + LABEL], check=False, capture_output=True)
+        if now_flag:
+            subprocess.run(['launchctl', 'bootstrap', dom, plist], check=False)
+        return ('Installed ' + plist + '. Edit ' + CONF + ' and set "channel". A macOS LaunchAgent starts when you log in '
+                '(not before), and restarts if it stops.' + ('' if now_flag else ' Run with --now to start it now.'))
     d = os.path.join(os.path.expanduser('~'), '.config', 'systemd', 'user')
     os.makedirs(d, exist_ok=True)
     unit = os.path.join(d, 'progress-bar-agentd.service')
     with open(unit, 'w', encoding='utf-8') as f:
         f.write(UNIT.format(python=sys.executable, self=SELF, path=os.environ.get('PATH', '/usr/bin:/bin')))
-    os.makedirs(HOME, mode=0o700, exist_ok=True)
-    if not os.path.exists(CONF):
-        write_json(CONF, DEFAULTS)
     cmds = [['systemctl', '--user', 'daemon-reload'], ['systemctl', '--user', 'enable'] + (['--now'] if now_flag else [])
             + ['progress-bar-agentd.service']]
     for c in cmds:
@@ -640,6 +679,9 @@ def main(argv):
     if cmd == 'install':
         return install('--now' in a)
     if cmd == 'uninstall':
+        if sys.platform == 'darwin':
+            subprocess.run(['launchctl', 'bootout', 'gui/' + str(os.getuid()) + '/' + LABEL], check=False)
+            return 'Stopped. The plist in ~/Library/LaunchAgents and ' + HOME + ' are kept (it starts again at next login until you delete the plist).'
         subprocess.run(['systemctl', '--user', 'disable', '--now', 'progress-bar-agentd.service'], check=False)
         return 'Disabled. The unit file and ' + HOME + ' are kept.'
     if cmd == 'pause':

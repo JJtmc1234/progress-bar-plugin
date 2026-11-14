@@ -24,7 +24,7 @@ $EDITOR ~/.claude-progress/agentd/config.json   # set "channel" to a channel nam
 
 The unit starts at boot. With `loginctl enable-linger $USER` it starts before you log in.
 
-`config.json`: `channel`, `max_agents` (6), `max_workers` (4), `max_budget_usd` per agent (5), `idle_minutes` (30), `model`, `extra_tools`, `add_dirs`.
+`config.json`: `tools` (`safe`, the default, or `full`), `channel`, `max_agents` (6), `max_workers` (4), `max_budget_usd` per agent (5), `idle_minutes` (30), `model`, `extra_tools`, `add_dirs`.
 
 ## Safety
 
@@ -47,3 +47,7 @@ Commands: `agentd.py status | pause | resume | stop-all | uninstall`.
 
 - **Status panel:** each daemon agent is a row, written by the daemon to `~/.claude-progress/agent-<id>.json`: title `Coordinator c1a2 · <task>`, its state as the step (`working`, `idle · <last result>`), a bar for a coordinator (workers finished of started), workers under their coordinator (`parent`). When an agent ends, its row's `impact` is its last answer and the row moves to DONE.
 - **Chat tab:** a line from an agent or session shows under its id in magenta (`c1a2 · 14:05`), not under "You". Your own lines in the tab are commands for the daemon too: `/task ...`, `@<id> ...`, `@all ...`, or plain text to every running agent. Agents see them as "[chat from the machine owner]".
+
+## Full access (`"tools": "full"`)
+
+The default is `safe`. If you trust the collaborator as you trust yourself, set `"tools": "full"` in `config.json`. Agents then get your session's tools: Bash, the network (WebFetch, WebSearch), file edits, and the desktop session (the daemon finds `WAYLAND_DISPLAY` and `HYPRLAND_INSTANCE_SIGNATURE`, so `hyprctl` and GUI launches work from a boot service). They start in your home folder. Their prompt still says never to leak secrets and to say so before anything destructive, but that is a request to the model, not a wall. In this mode, whoever can write to your channel can run commands as you.

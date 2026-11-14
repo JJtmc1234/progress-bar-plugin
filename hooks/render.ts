@@ -412,6 +412,20 @@ export const inlineStepsOn = () => inlineOn
 /** A checklist item's mark: single-width symbols only. */
 export const STEP_MARK: Record<StepState, string> = { done: '✓', active: '◐', todo: '○', skipped: '·', failed: '✖' }
 
+/** The running row's spinner frames, the same as group.py's SPIN: one frame a second, a full turn every 4 s. */
+export const SPIN = '◐◓◑◒'
+/** The spinner frame at `nowMs`, as group.py picks it (whole seconds, mod 4). */
+export const spinFrame = (nowMs: number) => SPIN[Math.floor(nowMs / 1000) % SPIN.length]!
+
+/**
+ * The mark of a running row's active checklist item: the row's own spinner frame, so the item turns with it (the
+ * clock's frame when the row shows another mark). A stuck, paused or finished row keeps the still mark.
+ */
+export function activeMark(rowMark: string, nowMs: number, still: boolean): string {
+  if (still) return STEP_MARK.active
+  return SPIN.includes(rowMark) && rowMark.length === 1 ? rowMark : spinFrame(nowMs)
+}
+
 /** ~/.claude-progress/titles.txt: `<job id><TAB><title><TAB><why><TAB><parent><TAB><area>` per line (area optional), keyed by the job id's slug. */
 export function parseTitles(text: string): Record<string, Meta> {
   const out: Record<string, Meta> = {}

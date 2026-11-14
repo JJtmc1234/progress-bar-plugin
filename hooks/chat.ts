@@ -21,7 +21,7 @@ export const PAGE_LINES = 30
 const KEEP_READ = 500
 const TEXT_EXT = /\.(md|markdown|txt)$/i
 
-export const chatAtom = atom({ plugin: 'progress-bar', key: 'chat' } as const, { msgs: [], channels: [], sel: '', open: '', page: 0, full: [], sending: false, note: '', draft: '', n: 0 } as ChatState)
+export const chatAtom = atom({ plugin: 'progress-bar', key: 'chat' } as const, { msgs: [], channels: [], sel: '', open: '', page: 0, full: [], sending: false, note: '', draft: '', n: 0, back: 0 } as ChatState)
 const tabAtom = atom({ plugin: 'progress-bar', key: 'tab' } as const, 'list')
 
 /** Text safe to draw: no ANSI/OSC escapes, no control or bidi-override chars (newlines kept), at most `n` chars. */
@@ -145,7 +145,7 @@ export async function markThreadRead($: EngineInterface, h: string, channel: str
 
 /** Picks a channel: shows its thread and marks it read. */
 export async function selectChannel($: EngineInterface, h: string, name: string) {
-  await update($, chatAtom, c => ({ ...c, sel: name, open: '', page: 0, full: [], note: '' }))
+  await update($, chatAtom, c => ({ ...c, sel: name, open: '', page: 0, full: [], note: '', back: 0 }))
   await readChat($, h)
   await markThreadRead($, h, name)
 }
@@ -159,6 +159,51 @@ export async function toggleOpen($: EngineInterface, h: string, m: ChatMsg) {
   try { text = String(await $.fs.read(m.path)).slice(0, FULL_CHARS + 1) } catch { text = '(the file is gone)' }
   const full = sanitize(text, FULL_CHARS).split('\n')
   await update($, chatAtom, s => ({ ...s, open: m.id, page: 0, full }))
+}
+
+/** A bubble shows at most this many lines until it is opened, so one long message cannot push the field off screen. */
+export const MAX_BUBBLE = 6
+
+/** Text cut into lines of at most `w` characters (newlines kept). */
+export function wrapText(text: string, w: number): string[] {
+  const out: string[] = []
+  for (const line of text.split('\n')) {
+    if (line.length <= w) { out.push(line); continue }
+    for (let i = 0; i < line.length; i += w) out.push(line.slice(i, i + w))
+  }
+  return out
+}
+
+/** The lines a closed bubble draws: wrapped, at most MAX_BUBBLE, the last ending in … when cut. */
+export function bubbleLines(text: string, w: number): string[] {
+  const lines = wrapText(text || ' ', Math.max(8, w))
+  if (lines.length <= MAX_BUBBLE) return lines
+  return [...lines.slice(0, MAX_BUBBLE - 1), `${lines[MAX_BUBBLE - 1]!.slice(0, Math.max(1, w - 1))}… (press to open)`]
+}
+
+/** How many terminal rows a message takes: its header, its bubble or file line, and the blank line after it. */
+export function msgRows(m: ChatMsg, bubbleW: number, open: boolean, fullLines: number): number {
+  if (open) return 2 + Math.min(fullLines, PAGE_LINES) + 2 + 1
+  if (m.chat) return 2 + bubbleLines(m.text, bubbleW - 4).length + 1
+  return 2 + 1 + (m.text ? Math.min(PREVIEW_LINES, m.text.split('\n').length) : 0)
+}
+
+/**
+ * The newest messages that fit `budget` rows, `back` messages before the newest (0 = the end of the thread). Always at
+ * least one. `older` and `newer` count the messages left out on each side.
+ */
+export function windowThread<T>(thread: T[], back: number, budget: number, rowsOf: (m: T) => number): { shown: T[]; older: number; newer: number } {
+  if (!thread.length) return { shown: [], older: 0, newer: 0 }
+  const end = Math.max(1, thread.length - Math.max(0, Math.min(back, thread.length - 1)))
+  let start = end
+  let used = 0
+  while (start > 0) {
+    const r = rowsOf(thread[start - 1]!)
+    if (start < end && used + r > budget) break
+    used += r
+    start--
+  }
+  return { shown: thread.slice(start, end), older: start, newer: thread.length - end }
 }
 
 export const pageCount = (lines: number) => Math.max(1, Math.ceil(lines / PAGE_LINES))
@@ -175,7 +220,7 @@ export async function sendChat($: EngineInterface, h: string, text: string): Pro
   await update($, chatAtom, s => ({ ...s, sending: true, note: 'sending…' }))
   const out = await say($, c.sel, body)
   const ok = /^Sent /.test(out)
-  await update($, chatAtom, s => ({ ...s, sending: false, note: ok ? '' : sanitize(out, 200), draft: ok ? '' : body, n: ok ? s.n + 1 : s.n }))
+  await update($, chatAtom, s => ({ ...s, sending: false, note: ok ? '' : sanitize(out, 200), draft: ok ? '' : body, n: ok ? s.n + 1 : s.n, back: ok ? 0 : s.back }))
   await readChat($, h)
   return out
 }

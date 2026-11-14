@@ -10,7 +10,7 @@ import { GH_EVERY, openUrl, openWeb, readGh } from './github'
 import { resolveHome } from './home'
 import { ACTION_PANE, logEvent, canRun, cancelRun, closeAction, confirmRun, copyCommand, cut as cutA, ranIt, readActions, runAction } from './actions'
 import { markRead, openLocal, readChannel } from './channel'
-import { PAGE_LINES, kb, pageCount, readChat, selectChannel, sendChat, toggleOpen, when } from './chat'
+import { PAGE_LINES, bubbleLines, kb, msgRows, pageCount, readChat, selectChannel, sendChat, toggleOpen, when, windowThread } from './chat'
 import { markHandled, readInbox } from './inbox'
 import { isDarwin } from './mac'
 import { backfillAgent, clock, doneDetails, machineName, prettyName, readDone } from './done'
@@ -1652,8 +1652,14 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
       // peer's name, sent right as "You"), then the compose field. All text was sanitized in chat.ts.
       const { Input } = $.ui.resolve(e) as { Input?: ElementConstructor<InputProps> }
       const sel = chat.sel
-      const thread = chat.msgs.filter(m => m.channel === sel).slice(-40)
+      const all = chat.msgs.filter(m => m.channel === sel).slice(-200)
       const bubbleW = Math.max(16, Math.floor(width * 0.8))
+      // The thread gets the rows left after the tab bar, the channel list, the field and the buttons, so the bar stays at
+      // the top and the message box at the bottom with no scrolling: the newest messages that fit, older ones a press away.
+      const bodyRows = (e.props as { scroll?: { bodyRows?: number } }).scroll?.bodyRows ?? 0
+      const fixedRows = 12 + chat.channels.length + (chat.note ? 1 : 0)
+      const budget = bodyRows > 0 ? Math.max(6, bodyRows - fixedRows) : 40
+      const { shown: thread, older, newer } = windowThread(all, chat.back, budget, m => msgRows(m, bubbleW, chat.open === m.id, chat.full.length))
       const cutC = (t: string, n: number) => (t.length > n ? `${t.slice(0, n - 1)}…` : t)
       const pick = chat.channels.map(name => {
         const ms = chat.msgs.filter(m => m.channel === name)
@@ -1695,11 +1701,11 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
             </Box>,
           )
         } else if (m.chat) {
-          const lines = (m.text || ' ').split('\n')
+          const lines = bubbleLines(m.text, bubbleW - 4)
           const w = Math.min(bubbleW, Math.max(...lines.map(l => l.length)) + 4)
           body.push(
             <Box key={`chb-${m.id}`} borderStyle="round" borderColor={agent ? 'magenta' : out ? 'green' : 'cyan'} paddingX={1} width={w}>
-              <Button key={`chm-${m.id}`} plain onPress={press}>{m.text || ' '}</Button>
+              <Button key={`chm-${m.id}`} plain onPress={press}>{lines.join('\n')}</Button>
             </Box>,
           )
         } else {
@@ -1730,7 +1736,9 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
                 ...pick,
                 <Text key="ch-rule" dimColor>{'─'.repeat(Math.max(10, width - 2))}</Text>,
                 thread.length === 0 ? <Text key="ch-empty" dimColor>{'  No messages yet. Say hi below.'}</Text> : null,
+                older ? <Button key="ch-older" plain onPress={() => update($, chatAtom, c => ({ ...c, back: Math.min(all.length - 1, c.back + Math.max(1, thread.length)), open: '', page: 0, full: [] }))}>{`▲ ${older} older`}</Button> : null,
                 ...thread.map(msgRow),
+                newer ? <Button key="ch-newer" plain onPress={() => update($, chatAtom, c => ({ ...c, back: Math.max(0, c.back - Math.max(1, thread.length)), open: '', page: 0, full: [] }))}>{`▼ ${newer} newer`}</Button> : null,
                 sel && field ? <Box key="ch-in" borderStyle="round" borderColor="gray" paddingX={1}>{field}</Box> : null,
                 <Box key="ch-act">
                   {sel && field

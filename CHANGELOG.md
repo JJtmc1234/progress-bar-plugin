@@ -4,6 +4,7 @@ Versions of the progress-bar plugin, newest first. Each line is the release comm
 
 ## Unreleased
 
+- **Agent names:** the daemon gives each agent a random human first name (Bob, Gerald, Doris...) instead of a hex id. Use it as `@gerald ...` or start a message with `gerald, ...`.
 - **Agent daemon:** `bin/agentd.py` is a background service that takes tasks from a secure-channel collaborator. `/task` starts one agent, or a coordinator with workers for a big task. `@<id>` pivots a running agent, and every agent can post to the chat. Runs as a systemd user service (`agentd.py install`). Agents read the group chat, and plain chat lines or `@all` reach every running agent. With the new **Group chat** option, ordinary sessions get `chat_read` and `chat_say` tools and see the collaborator's new lines as untrusted instructions. See `docs/agent-daemon.md`. Agents show as Status panel rows and under their id in the Chat tab, plain text needs no command, and `"tools": "full"` in the daemon's config gives agents a shell, the network and the desktop session.
 
 ## 0.34.1

@@ -236,7 +236,7 @@ class Agent:
         self.status = 'starting'
         self.workers = []
         self.proc = None
-        self.cwd = os.path.join(WORK, aid)
+        self.cwd = os.path.join(WORK, aid + '-' + time.strftime('%m%d%H%M%S'))
         self.result = ''
         self.retired = False
 
@@ -267,7 +267,8 @@ class Agent:
         elif self.role == 'worker':
             s += (' You are a WORKER for coordinator ' + str(self.parent) + '. Do only your piece. Your final answer '
                   'is sent to the coordinator for you.')
-        s += ' Your agent id is ' + self.id + '. Others can pivot you with a new user message.'
+        s += (' Your name is ' + self.id.capitalize() + ' (your agent id is ' + self.id + '), and people in the chat may call you by '
+              'it. Others can pivot you with a new user message.')
         return s
 
     def start(self):
@@ -341,7 +342,7 @@ def slug(a):
 def publish(a, impact=None):
     """The agent as a row in the Status panel: ~/.claude-progress/agent-<id>.json (docs/progress-files.md)."""
     ws = [agents[w] for w in a.workers if w in agents]
-    row = {'title': a.role.capitalize() + ' ' + a.id + ' · ' + clean(a.task, 70), 'step': a.status + (' · ' + clean(a.result, 60) if a.status == 'idle' and a.result else ''),
+    row = {'title': a.id.capitalize() + (' (coordinator)' if a.role == 'coordinator' else '') + ' · ' + clean(a.task, 70), 'step': a.status + (' · ' + clean(a.result, 60) if a.status == 'idle' and a.result else ''),
            'startedAt': a.started * 1000, 'why': 'a task from the chat', 'agent': True}
     if a.role == 'worker' and a.parent:
         row['parent'] = 'agent-' + a.parent
@@ -392,8 +393,25 @@ def live():
     return [a for a in agents.values() if a.status != 'ended']
 
 
+NAMES = ('alice bob carol dave erin frank grace henry irene jack karen leo maria nate olivia paul quinn rosa sam tina '
+         'uma victor wendy xavier yara zach gerald doris walter edna harold gladys norman mabel chester ethel clarence '
+         'agnes stanley hazel vernon ruth floyd maxine duane lorna elmer opal gus nora hank pearl wade june cliff '
+         'ida otis mae felix dora ben cora luke vera ray anna carl lena owen faye ned iris abe jill earl nell '
+         'ross beth glen alma pete rita dean hope bart elsa troy lois seth nina cole tess').lower().split()
+
+
 def new_id(role):
-    return {'coordinator': 'c', 'worker': 'w'}.get(role, 'a') + secrets.token_hex(2)
+    """A human first name no agent has used since the daemon started. When the list runs out: bob2, bob3..."""
+    used = set(agents)
+    free = [n for n in NAMES if n not in used]
+    if free:
+        return secrets.choice(free)
+    n = 2
+    while True:
+        free = [x + str(n) for x in NAMES if x + str(n) not in used]
+        if free:
+            return secrets.choice(free)
+        n += 1
 
 
 def spawn(task, role='agent', parent=None):
@@ -447,7 +465,7 @@ def route(text):
 def start_task(body, size=''):
     size = size or classify(body)
     a = spawn(body, 'coordinator' if size == 'big' else 'agent')
-    say(('coordinator ' if size == 'big' else 'agent ') + a.id + ' started. Talk to it with @' + a.id + ' <text>, or just type.')
+    say(a.id.capitalize() + (' (coordinator)' if size == 'big' else '') + ' is on it. Talk to ' + a.id.capitalize() + ' with @' + a.id + ' <text>, or just type.')
 
 
 def stop_agent(aid):
@@ -472,16 +490,22 @@ def say_all(text, who='collaborator'):
 def handle(text, who='collaborator'):
     """One command from the peer. Returns nothing, replies go to the chat."""
     text = text.strip()
-    m = re.match(r'@([a-z][0-9a-f]{4})\b\s*(.*)', text, re.S)
+    target = None  # (agent name, text for it): "@bob ...", or "bob, ..." / "hey bob ..." to a running agent
+    m = re.match(r'@([A-Za-z][A-Za-z0-9]{1,15})\b[,:]?\s*(.*)', text, re.S)
+    n = None if m or text.startswith('/') else re.match(r'(?:(?:hey|hi)\s+)?([A-Za-z][A-Za-z0-9]{1,15})[,:]\s+(.*)', text, re.S)
+    if m and m.group(1).lower() != 'all':
+        target = (m.group(1).lower(), m.group(2))
+    elif n and n.group(1).lower() in agents and agents[n.group(1).lower()].status != 'ended':
+        target = (n.group(1).lower(), n.group(2))
     try:
         record(who, text)
         if re.match(r'@all\b', text):
             say_all(text[4:].strip(), who)
-        elif m:
-            a = agents.get(m.group(1))
-            if not a or a.status == 'ended' or not m.group(2):
-                say('no running agent ' + m.group(1) + ' (or no text). /agents lists them.')
-            elif a.send(m.group(2)):
+        elif target:
+            a = agents.get(target[0])
+            if not a or a.status == 'ended' or not target[1]:
+                say('no running agent named ' + target[0].capitalize() + ' (or no text). /agents lists them.')
+            elif a.send(target[1]):
                 log('pivot ' + a.id)
             else:
                 say(a.id + ' is not taking messages')

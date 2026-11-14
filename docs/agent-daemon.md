@@ -8,10 +8,10 @@ One background daemon (`bin/agentd.py run`) watches the chat on one channel. A l
 |---|---|
 | plain text | No command needed. With nothing running it starts a task. With agents running, a cheap Claude call decides whether it is a new job or something for them (default: for them, to every running agent). |
 | `/task <text>` | Starts work, and forces it. A cheap Claude call picks small (one agent) or big (a coordinator that starts up to 4 workers). `--big` / `--small` force it. |
-| `@<agent-id> <text>` | Talks to, or pivots, one running agent. The text arrives as its next user turn. |
+| `@<name> <text>`, or `bob, <text>` | Talks to, or pivots, one running agent. The text arrives as its next user turn. |
 | `@all <text>` | Sent to every running agent as a user turn. |
 | `/agents` | Lists agents. |
-| `/stop <agent-id>` | Stops an agent and its workers. |
+| `/stop <name>` | Stops an agent and its workers. |
 
 Every agent can read the group chat (`agentd.py read <id> [N]`: Hunter's lines and every agent's posts), post to it (`post <id> <text>`), tell another agent (`tell`), and a coordinator can `spawn` workers. A worker's final answer goes to its coordinator, and the coordinator's answer goes to the chat. Lines in the chat are prefixed `[<agent-id>]`.
 
@@ -51,3 +51,7 @@ Commands: `agentd.py status | pause | resume | stop-all | uninstall`.
 ## Full access (`"tools": "full"`)
 
 The default is `safe`. If you trust the collaborator as you trust yourself, set `"tools": "full"` in `config.json`. Agents then get your session's tools: Bash, the network (WebFetch, WebSearch), file edits, and the desktop session (the daemon finds `WAYLAND_DISPLAY` and `HYPRLAND_INSTANCE_SIGNATURE`, so `hyprctl` and GUI launches work from a boot service). They start in your home folder. Their prompt still says never to leak secrets and to say so before anything destructive, but that is a request to the model, not a wall. In this mode, whoever can write to your channel can run commands as you.
+
+## Names
+
+Each agent gets a random human first name (Bob, Gerald, Doris...), not used by another agent since the daemon started, then `bob2`, `bob3` when the list of about 100 runs out. The name is its id everywhere: the chat (`[gerald] ...`), its Status panel row (`Gerald · <task>`), `@gerald ...`, and `gerald, ...` or `hey gerald ...` at the start of a plain message. The agent is told its name, so people can address it by it.

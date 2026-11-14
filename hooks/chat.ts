@@ -164,12 +164,23 @@ export async function toggleOpen($: EngineInterface, h: string, m: ChatMsg) {
 /** A bubble shows at most this many lines until it is opened, so one long message cannot push the field off screen. */
 export const MAX_BUBBLE = 6
 
-/** Text cut into lines of at most `w` characters (newlines kept). */
+/** Text wrapped into lines of at most `w` characters at spaces (newlines kept). A word longer than `w` is split. */
 export function wrapText(text: string, w: number): string[] {
   const out: string[] = []
   for (const line of text.split('\n')) {
-    if (line.length <= w) { out.push(line); continue }
-    for (let i = 0; i < line.length; i += w) out.push(line.slice(i, i + w))
+    let cur = ''
+    for (const word of line.split(' ')) {
+      let rest = word
+      while (rest.length > w) {
+        if (cur) { out.push(cur); cur = '' }
+        out.push(rest.slice(0, w))
+        rest = rest.slice(w)
+      }
+      if (!cur) cur = rest
+      else if (cur.length + 1 + rest.length <= w) cur += ` ${rest}`
+      else { out.push(cur); cur = rest }
+    }
+    out.push(cur)
   }
   return out
 }

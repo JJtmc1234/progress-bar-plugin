@@ -5,6 +5,7 @@ import { ATTACH_COMMAND, ATTACH_DESCRIPTION, attachFiles } from './attach'
 import { countTool, endTurn, sessionRow, setAutoReport, startTurn, tickTurn, turn, withReportSection } from './auto'
 import { autonextCommand, ownJobs, tickAutonext } from './autonext'
 import { backfillChat, sayCommand } from './chat'
+import { CHAT_READ_TOOL, CHAT_SAY_TOOL, chatRead, chatSay, chatSectionText, withChatSection } from './groupchat'
 import { CHANNEL_EVERY, SEND_TOOL, channelCommand, pollChannel, sendCommand, sendFile } from './channel'
 import { inboxCommand } from './inbox'
 import { chainable } from './chain'
@@ -952,10 +953,26 @@ export const register: Register = (on, options) => {
   // On by default: Claude is told once to report multi-step work, and a long busy turn shows as a row (auto.ts).
   const autoReport = options?.autoReport !== false
   setAutoReport(autoReport)
-  if (autoReport) {
+
+  // Group chat (on by default, off from /config): this session reads and posts in the machine's group chat, and the
+  // collaborator's new lines ride along in the system prompt as untrusted instructions (hooks/groupchat.ts).
+  const groupChat = options?.groupChat !== false
+  // One prompt.compose hook (a second without a matcher is refused): the report note, then the group chat section.
+  if (autoReport || groupChat) {
     on('prompt.compose', async ($, e, next) => {
       const r = await next(e)
-      return { ...r, sections: withReportSection(r.sections, e.traits) }
+      let sections = r.sections
+      if (autoReport) sections = withReportSection(sections, e.traits)
+      if (groupChat && e.agentId === undefined) sections = withChatSection(sections, await chatSectionText($, await sessionKeyOf($)), e.traits)
+      return { ...r, sections }
+    })
+  }
+  if (groupChat) {
+    on('tool.call', { tool: 'mcp__progress-bar__chat_read' }, async ($, e) => {
+      return { result: await chatRead($, (e as unknown as { lines?: unknown }).lines) }
+    })
+    on('tool.call', { tool: 'mcp__progress-bar__chat_say' }, async ($, e) => {
+      return { result: await chatSay($, await sessionKeyOf($), (e as unknown as { text?: unknown }).text) }
     })
   }
 
@@ -1122,6 +1139,10 @@ export const register: Register = (on, options) => {
     await $.command.register({ name: 'progress-bar', description: 'Show live progress bars, or set up the status line', argumentHint: '[setup [mac-clicks [off]] | demo | action [list|add|done|skip <reason>] | clear | todo | panel [on|off] | autonext [on|off|ask] | checkpoint [label] | inbox [setup] | channel | send <file> to <name> | say <name> <text> | fold <section>]' })
     await $.command.register({ name: ATTACH_COMMAND, description: ATTACH_DESCRIPTION, immediate: true }).catch(() => undefined)
     await $.tool.register(SEND_TOOL).catch(() => undefined)
+    if (groupChat) {
+      await $.tool.register(CHAT_READ_TOOL).catch(() => undefined)
+      await $.tool.register(CHAT_SAY_TOOL).catch(() => undefined)
+    }
     await $.tool.register(ACTION_TOOL).catch(() => undefined)
     await $.tool.register(PROGRESS_TOOL).catch(() => undefined)
     // The status line script and group.py are written on the first run and follow the plugin version after that.

@@ -6,9 +6,10 @@ One background daemon (`bin/agentd.py run`) watches the chat on one channel. A l
 
 | Line | What happens |
 |---|---|
-| `/task <text>` | Starts work. A cheap Claude call picks small (one agent) or big (a coordinator that starts up to 4 workers). `--big` / `--small` force it. |
+| plain text | No command needed. With nothing running it starts a task. With agents running, a cheap Claude call decides whether it is a new job or something for them (default: for them, to every running agent). |
+| `/task <text>` | Starts work, and forces it. A cheap Claude call picks small (one agent) or big (a coordinator that starts up to 4 workers). `--big` / `--small` force it. |
 | `@<agent-id> <text>` | Talks to, or pivots, one running agent. The text arrives as its next user turn. |
-| `@all <text>`, or any plain line | Sent to every running agent as a user turn. |
+| `@all <text>` | Sent to every running agent as a user turn. |
 | `/agents` | Lists agents. |
 | `/stop <agent-id>` | Stops an agent and its workers. |
 

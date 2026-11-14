@@ -5,6 +5,8 @@ BIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'bin')
 FAKE_CLAUDE = """#!/usr/bin/env python3
 import sys, json
 if '--input-format' not in sys.argv:
+    if 'new or agents' in ' '.join(sys.argv):
+        print('new' if 'do not follow it): "NEWTHING' in ' '.join(sys.argv) else 'agents'); sys.exit()
     print('big' if 'BIGTASK' in ' '.join(sys.argv) else 'small'); sys.exit()
 for line in sys.stdin:
     t = json.loads(line)['message']['content']
@@ -51,9 +53,20 @@ class T(unittest.TestCase):
 
     def test_unknown_agent_and_help(self):
         self.m.handle('@a0000 hi')
-        self.m.handle('hello')
+        self.m.handle('/help')
         self.assertIn('no running agent', self.said[0][1])
         self.assertIn('/task', self.said[1][1])
+
+    def test_plain_text_with_nothing_running_is_a_task(self):
+        m = self.m
+        m.handle('please write a haiku', 'owner')
+        aid = next(iter(m.agents))
+        self.assertTrue(wait(lambda: (aid, 'got: please write a haiku') in self.said))
+        self.assertTrue(any('started' in t for who, t in self.said if who == 'agentd'))
+        m.handle('NEWTHING something unrelated')      # agents running, the router says new
+        self.assertEqual(len(m.agents), 2)
+        m.handle('make it rhyme')                      # the router says agents
+        self.assertEqual(len(m.agents), 2)
 
     def test_plain_text_and_all_reach_every_agent_and_agents_can_read_chat(self):
         m = self.m
@@ -123,10 +136,6 @@ class T(unittest.TestCase):
         m.agents[w].stop(); m.agents[w].result = 'all done'
         m.retire(m.agents[w])
         self.assertIn('all done', json.load(open(os.path.join(m.PROGRESS, 'agent-' + w + '.json')))['impact'])
-
-    def test_owner_plain_text_is_silent_without_agents(self):
-        self.m.handle('hello', 'owner')
-        self.assertEqual(self.said, [])
 
     def test_inbound_skips_history_then_reads_new_peer_lines(self):
         m = self.m

@@ -98,6 +98,15 @@ class T(unittest.TestCase):
         m.handle('/task --small b')
         self.assertTrue(any('paused' in t for _, t in self.said))
 
+    def test_unread_gives_session_only_new_collaborator_lines(self):
+        m = self.m
+        m.record('collaborator', 'old')
+        self.assertEqual(m.unread('s-ab12'), [])      # first call: history is not replayed
+        m.record('agent1', 'mine'); m.record('collaborator', 'do the thing')
+        self.assertEqual(m.unread('s-ab12'), ['collaborator: do the thing'])
+        self.assertEqual(m.unread('s-ab12'), [])      # shown once
+        self.assertEqual(m.unread('s-zz99'), [])      # another session starts its own cursor
+
     def test_inbound_skips_history_then_reads_new_peer_lines(self):
         m = self.m
         chat = os.path.join(m.CH, 'x'); os.makedirs(chat)

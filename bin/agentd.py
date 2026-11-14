@@ -11,7 +11,7 @@ is a command:
   /stop <agent-id>               stop one agent (and its workers)
   /help                          this list
 Every agent can read and post to the same chat, and a coordinator can spawn workers, through the daemon's local socket:
-  agentd.py read <id> [N] | read <id> [N] | post <id> <text...> | spawn <id> <task...> | tell <id> <to-id> <text...>
+  agentd.py read <id> [N] | chat-read [N] | chat-unread <key> | chat-say <name> <text...> | read <id> [N] | post <id> <text...> | spawn <id> <task...> | tell <id> <to-id> <text...>
 Agents are `claude -p` processes (stream-json in and out) so a message can reach one while it runs.
 
 Safety (this is remote control of a coding agent, so the defaults are tight):
@@ -123,7 +123,7 @@ def record(who, text):
     try:
         os.makedirs(HOME, mode=0o700, exist_ok=True)
         with open(CHATLOG, 'a', encoding='utf-8') as f:
-            f.write(json.dumps({'ts': now(), 'who': who, 'text': clean_chat(text)[:MAX_LINE]}) + '\n')
+            f.write(json.dumps({'ts': time.time(), 'who': who, 'text': clean_chat(text)[:MAX_LINE]}) + '\n')
         os.chmod(CHATLOG, 0o600)
     except OSError:
         pass
@@ -136,6 +136,32 @@ def recent(n):
     except (OSError, ValueError):
         return []
     return [time.strftime('%H:%M ', time.localtime(r['ts'])) + r['who'] + ': ' + r['text'] for r in rows]
+
+
+def who_of(s):
+    return re.sub(r'[^a-z0-9_-]+', '-', str(s or '').lower()).strip('-')[:24] or 'session'
+
+
+def unread(key):
+    """The collaborator's chat lines this session has not been shown, oldest first, at most 10. The first call for a key
+    sets its cursor to now, so history is never replayed into a session. Each call moves the cursor on."""
+    path = os.path.join(HOME, 'cursors', who_of(key))
+    try:
+        with open(CHATLOG, encoding='utf-8') as f:
+            rows = [json.loads(l) for l in f.readlines()[-300:]]
+    except (OSError, ValueError):
+        rows = []
+    try:
+        cur = float(open(path).read())
+    except (OSError, ValueError):
+        cur = None
+    top = max([r['ts'] for r in rows] + [time.time() if cur is None else cur])
+    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+    with open(path, 'w') as f:
+        f.write(repr(top))
+    if cur is None:
+        return []
+    return [r['who'] + ': ' + r['text'] for r in rows if r['ts'] > cur and r['who'] == 'collaborator'][-10:]
 
 
 def say(text, who='agentd'):
@@ -530,6 +556,15 @@ def main(argv):
         open(PAUSED, 'a').close()
         r = call({'op': 'stopall'})
         return 'Paused, and asked every agent to stop.' if r.get('ok') else 'Paused. The daemon is not running.'
+    if cmd == 'chat-read':
+        return '\n'.join(recent(int(a[0]) if a and a[0].isdigit() else 30)) or '(the chat is empty)'
+    if cmd == 'chat-unread' and a:
+        return '\n'.join(unread(a[0]))
+    if cmd == 'chat-say' and len(a) >= 2:
+        cfg = load_config()
+        if not cfg['channel']:
+            raise SystemExit('agentd: no channel is set in ' + CONF)
+        return 'sent' if say(' '.join(a[1:])[:3500], who_of(a[0])) else 'agentd: the chat line was not sent'
     if cmd in ('post', 'spawn') and len(a) >= 2:
         r = call({'op': cmd, 'id': a[0], 'text': ' '.join(a[1:])})
     elif cmd == 'read' and a:

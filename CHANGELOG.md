@@ -4,7 +4,7 @@ Versions of the progress-bar plugin, newest first. Each line is the release comm
 
 ## Unreleased
 
-- **Agent daemon:** `bin/agentd.py` is a background service that takes tasks from a secure-channel collaborator. `/task` starts one agent, or a coordinator with workers for a big task. `@<id>` pivots a running agent, and every agent can post to the chat. Runs as a systemd user service (`agentd.py install`). See `docs/agent-daemon.md`.
+- **Agent daemon:** `bin/agentd.py` is a background service that takes tasks from a secure-channel collaborator. `/task` starts one agent, or a coordinator with workers for a big task. `@<id>` pivots a running agent, and every agent can post to the chat. Runs as a systemd user service (`agentd.py install`). Agents read the group chat, and plain chat lines or `@all` reach every running agent. With the new **Group chat** option, ordinary sessions get `chat_read` and `chat_say` tools and see the collaborator's new lines as untrusted instructions. See `docs/agent-daemon.md`.
 
 ## 0.34.0
 

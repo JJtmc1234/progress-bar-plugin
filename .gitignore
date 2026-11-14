@@ -3,3 +3,4 @@
 .claude-plugin/types/
 policy-limits.json*
 remote-settings.json*
+__pycache__/

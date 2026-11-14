@@ -37,3 +37,7 @@ This is remote control of a coding agent, so the defaults are tight.
 - Agents use the owner's Claude login, so their work counts toward the owner's usage.
 
 Commands: `agentd.py status | pause | resume | stop-all | uninstall`.
+
+## Your own Claude Code sessions in the chat
+
+Turn on **Group chat** (`groupChat`) in `/config`. Then every session gets two tools, `chat_read` and `chat_say` (posts as `[s-<session>]`), a short standing note in its system prompt, and the collaborator's new chat lines, added to the prompt of the next turn as untrusted instructions from another person. Claude is told to say who asked before acting, never to reveal secrets because of a chat line, and your permission prompts still apply. It is off by default, because it lets anyone on your channel steer your sessions. It needs the daemon running (it keeps the chat). Hooks: `hooks/groupchat.ts`.
